@@ -1,0 +1,17 @@
+qa-automation-v1/
+├─ 00_PROJECT_OVERVIEW.md
+├─ 00A_DATABASE_SETUP.md
+├─ 00B_RUST_LIBRARIES.md
+├─ 01_BOOTSTRAP_AND_STORAGE.md
+├─ 02_SESSION_MANAGER.md
+├─ 03_EVENT_RECORDER.md
+├─ 04_SCREENSHOT_CAPTURE.md
+├─ 05_CHECKPOINT_SYSTEM.md
+├─ 06_EVENT_CHUNKING_AND_SUMMARY.md
+├─ 07_AI_TEST_GENERATION.md
+├─ 08_DEDUP_AND_PRIORITY.md
+├─ 09_REPORT_EXPORT.md
+└─ CHECKPOINT_PROGRESS.md
+
+Mark done feature finish implemented to checkpoint dont
+read again file marker only if needed
