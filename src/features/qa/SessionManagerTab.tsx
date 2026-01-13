@@ -5,25 +5,9 @@ import { Switch } from "../../shared/components/Switch";
 import { useToastStore } from "../../store/toast";
 import { useQaSessionStore } from "../../store/qaSession";
 import { isTauri } from "../../utils/tauri";
-
-interface QaSession {
-  id: string;
-  title: string;
-  goal: string;
-  is_positive_case: boolean;
-  app_version?: string | null;
-  os?: string | null;
-  started_at: number;
-  ended_at?: number | null;
-}
+import { QaSession, QaSessionType } from "../../types/qa/types";
 
 const DEFAULT_TITLE = "Untitled Session";
-
-function buildSessionNotes(previewUrl: string) {
-  const trimmed = previewUrl.trim();
-  if (!trimmed) return null;
-  return JSON.stringify({ preview_url: trimmed });
-}
 
 export default function SessionManagerTab() {
   const { addToast } = useToastStore();
@@ -31,12 +15,18 @@ export default function SessionManagerTab() {
     useQaSessionStore();
   const [title, setTitle] = useState(DEFAULT_TITLE);
   const [goal, setGoal] = useState("");
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [sessionType, setSessionType] = useState<QaSessionType>("browser");
+  const [targetUrl, setTargetUrl] = useState("");
+  const [apiBaseUrl, setApiBaseUrl] = useState("");
+  const [authProfileJson, setAuthProfileJson] = useState("");
   const [isPositiveCase, setIsPositiveCase] = useState(true);
   const [activeSession, setActiveSession] = useState<QaSession | null>(null);
   const [isStarting, setIsStarting] = useState(false);
 
-  const canSave = goal.trim().length > 0 && !isStarting;
+  const canSave =
+    goal.trim().length > 0 &&
+    !isStarting &&
+    (sessionType === "browser" || apiBaseUrl.trim().length > 0);
 
   const startedAtLabel = useMemo(() => {
     if (!activeSession?.started_at) return "Not started";
@@ -53,14 +43,22 @@ export default function SessionManagerTab() {
       return;
     }
 
+    if (sessionType === "api" && !apiBaseUrl.trim()) {
+      addToast("API base URL is required for API sessions", "error");
+      return;
+    }
+
     setIsStarting(true);
     try {
-      const notes = buildSessionNotes(previewUrl);
       const session = await invoke<QaSession>("qa_start_session", {
         title: title.trim(),
         goal: goal.trim(),
+        sessionType,
         isPositiveCase,
-        notes,
+        targetUrl: sessionType === "browser" ? targetUrl.trim() : null,
+        apiBaseUrl: sessionType === "api" ? apiBaseUrl.trim() : null,
+        authProfileJson: sessionType === "api" ? authProfileJson.trim() : null,
+        notes: null,
       });
       setActiveSessionId(session.id);
       setRecordingSessionId(null);
@@ -107,22 +105,78 @@ export default function SessionManagerTab() {
             </div>
             <div>
               <label className="text-[10px] text-gray-500 block mb-1">
-                Preview URL (optional)
+                Session type
               </label>
-              <input
-                className="w-full bg-[#181818] border border-app-border rounded p-2 px-3 text-xs outline-none focus:border-gray-500 transition"
-                placeholder="https://app.example.com"
-                value={previewUrl}
-                onChange={(e) => setPreviewUrl(e.currentTarget.value)}
-              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSessionType("browser")}
+                  className={`px-3 py-1 rounded text-[11px] border transition ${
+                    sessionType === "browser"
+                      ? "bg-emerald-700/30 border-emerald-500/60 text-emerald-100"
+                      : "bg-[#181818] border-app-border text-app-subtext"
+                  }`}>
+                  Browser
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSessionType("api")}
+                  className={`px-3 py-1 rounded text-[11px] border transition ${
+                    sessionType === "api"
+                      ? "bg-blue-700/30 border-blue-500/60 text-blue-100"
+                      : "bg-[#181818] border-app-border text-app-subtext"
+                  }`}>
+                  API
+                </button>
+              </div>
             </div>
+            {sessionType === "browser" ? (
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-1">
+                  Target URL (optional)
+                </label>
+                <input
+                  className="w-full bg-[#181818] border border-app-border rounded p-2 px-3 text-xs outline-none focus:border-gray-500 transition"
+                  placeholder="https://app.example.com"
+                  value={targetUrl}
+                  onChange={(e) => setTargetUrl(e.currentTarget.value)}
+                />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] text-gray-500 block mb-1">
+                    API base URL (required)
+                  </label>
+                  <input
+                    className="w-full bg-[#181818] border border-app-border rounded p-2 px-3 text-xs outline-none focus:border-gray-500 transition"
+                    placeholder="https://api.example.com"
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.currentTarget.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block mb-1">
+                    Auth profile JSON (optional)
+                  </label>
+                  <textarea
+                    className="w-full min-h-[72px] bg-[#181818] border border-app-border rounded p-2 px-3 text-xs outline-none focus:border-gray-500 transition resize-y"
+                    placeholder='{"Authorization":"Bearer <token>"}'
+                    value={authProfileJson}
+                    onChange={(e) => setAuthProfileJson(e.currentTarget.value)}
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs text-gray-200 font-medium">
                   Positive case
                 </div>
                 <div className="text-[10px] text-gray-500">
-                  Toggle off for negative or edge-case recordings.
+                  {sessionType === "api"
+                    ? "Optional for API sessions; keep for coverage grouping."
+                    : "Toggle off for negative or edge-case recordings."}
                 </div>
               </div>
               <Switch

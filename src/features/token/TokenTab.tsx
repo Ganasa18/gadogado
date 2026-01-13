@@ -104,7 +104,7 @@ export default function TokenTab() {
   const hasToken = tokenInput.trim().length > 0;
 
   return (
-    <div className="max-w-5xl mx-auto p-4 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-7xl mx-auto px-5 py-10 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-app-text">
@@ -125,20 +125,20 @@ export default function TokenTab() {
       </div>
 
       <div className="bg-app-card border border-app-border rounded-xl p-4 space-y-3">
-        <label className="text-[10px] text-gray-500 uppercase tracking-widest">
+        <label className="text-[10px] text-app-subtext uppercase tracking-widest">
           Bearer token
         </label>
         <TextArea
           value={tokenInput}
           onInput={(e: any) => setTokenInput(e.target.value)}
           placeholder="Paste a JWT or Authorization: Bearer <token> here..."
-          className="min-h-[130px] text-xs font-mono bg-[#111114] border-app-border/50"
+          className="min-h-[130px] text-xs font-mono bg-background border-app-border/50 text-app-text"
         />
         <div className="flex items-center gap-2 text-[10px] text-app-subtext">
           {parsed.error ? (
             <>
               <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
-              <span className="text-red-300">{parsed.error}</span>
+              <span className="text-red-500">{parsed.error}</span>
             </>
           ) : hasToken ? (
             <>
@@ -154,7 +154,7 @@ export default function TokenTab() {
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="bg-app-card border border-app-border rounded-xl p-4 space-y-3">
           <div className="text-xs font-semibold text-app-text">Header</div>
-          <pre className="min-h-[220px] max-h-[320px] overflow-auto rounded-lg bg-black/20 border border-app-border/40 p-3 text-[11px] text-app-text whitespace-pre-wrap break-words">
+          <pre className="min-h-[220px] max-h-[320px] overflow-auto rounded-lg bg-app-panel border border-app-border/40 p-3 text-[11px] text-app-text whitespace-pre-wrap break-words">
             {parsed.header
               ? formatJson(parsed.header)
               : parsed.headerRaw
@@ -165,7 +165,7 @@ export default function TokenTab() {
 
         <div className="bg-app-card border border-app-border rounded-xl p-4 space-y-3">
           <div className="text-xs font-semibold text-app-text">Payload</div>
-          <pre className="min-h-[220px] max-h-[320px] overflow-auto rounded-lg bg-black/20 border border-app-border/40 p-3 text-[11px] text-app-text whitespace-pre-wrap ">
+          <pre className="min-h-[220px] max-h-[320px] overflow-auto rounded-lg bg-app-panel border border-app-border/40 p-3 text-[11px] text-app-text whitespace-pre-wrap ">
             {parsed.payload
               ? formatJson(parsed.payload)
               : parsed.payloadRaw
@@ -176,7 +176,7 @@ export default function TokenTab() {
 
         <div className="bg-app-card border border-app-border rounded-xl p-4 space-y-3">
           <div className="text-xs font-semibold text-app-text">Signature</div>
-          <div className="min-h-[220px] max-h-[320px] overflow-auto rounded-lg bg-black/20 border border-app-border/40 p-3 text-[11px] text-app-subtext whitespace-pre-wrap break-words">
+          <div className="min-h-[220px] max-h-[320px] overflow-auto rounded-lg bg-app-panel border border-app-border/40 p-3 text-[11px] text-app-subtext whitespace-pre-wrap break-words">
             {parsed.signature || "Signature (base64url) will appear here..."}
           </div>
           <div className="text-[10px] text-app-subtext">

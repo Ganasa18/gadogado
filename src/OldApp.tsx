@@ -167,17 +167,24 @@ function App() {
                 </span>
                 <span
                   className={`font-bold ${
-                    provider === "local"
+                    provider === "local" ||
+                    provider === "ollama" ||
+                    provider === "llama_cpp"
                       ? "text-app-success"
                       : "text-app-accent"
                   }`}>
                   {provider === "local"
                     ? "Local LLM"
+                    : provider === "ollama"
+                    ? "Ollama"
+                    : provider === "llama_cpp"
+                    ? "Llama.cpp"
                     : provider === "openai"
-                    ? "Open Api"
-                    : provider === "google"
-                    ? "Google"
+                    ? "OpenAI"
+                    : provider === "gemini"
+                    ? "Gemini"
                     : "DLL"}
+
                 </span>
               </div>
               <div className="flex items-center justify-between text-[10px]">

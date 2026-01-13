@@ -15,6 +15,9 @@ interface QaEventPayload {
   value?: string;
   url?: string;
   metaJson?: string;
+  runId?: string;
+  origin?: string;
+  recordingMode?: string;
 }
 
 export function useQaEventRecorder() {
@@ -22,6 +25,7 @@ export function useQaEventRecorder() {
   const { addToast } = useToastStore();
   const {
     recordingSessionId,
+    activeRunId,
     recordingMode,
     recordingDelay,
     isRecordingArmed,
@@ -79,7 +83,13 @@ export function useQaEventRecorder() {
       }, delay);
     };
 
+    const allowedEventTypes = new Set(["click", "input", "submit"]);
+
     const recordEvent = (payload: QaEventPayload) => {
+      const normalizedType = payload.eventType.toLowerCase();
+      if (!allowedEventTypes.has(normalizedType)) {
+        return;
+      }
       const mode = recordingModeRef.current;
       const armed = isRecordingArmedRef.current;
 
@@ -89,7 +99,13 @@ export function useQaEventRecorder() {
         return;
       }
 
-      recordEventWithDelay(payload);
+      recordEventWithDelay({
+        ...payload,
+        eventType: normalizedType,
+        runId: activeRunId ?? payload.runId,
+        origin: payload.origin ?? "user",
+        recordingMode: payload.recordingMode ?? mode,
+      });
 
       // In manual mode, disarm after recording one event
       if (mode === "manual") {
@@ -145,7 +161,10 @@ export function useQaEventRecorder() {
     const resolveUrl = (target: Element) =>
       target.ownerDocument?.defaultView?.location?.href ?? window.location.href;
 
+    const isSyntheticEvent = (event: Event) => event.isTrusted === false;
+
     const handleClick = (event: Event, root?: Element | null) => {
+      if (isSyntheticEvent(event)) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (shouldIgnoreTarget(target, root)) return;
@@ -173,6 +192,7 @@ export function useQaEventRecorder() {
     };
 
     const handleInput = (event: Event, root?: Element | null) => {
+      if (isSyntheticEvent(event)) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (shouldIgnoreTarget(target, root)) return;
@@ -219,6 +239,7 @@ export function useQaEventRecorder() {
     };
 
     const handleSubmit = (event: Event, root?: Element | null) => {
+      if (isSyntheticEvent(event)) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (shouldIgnoreTarget(target, root)) return;

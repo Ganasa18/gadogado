@@ -3,12 +3,17 @@ mod domain;
 mod infrastructure;
 mod interfaces;
 
+use crate::application::use_cases::qa_ai::QaAiUseCase;
 use crate::application::{
-    EnhanceUseCase, QaEventUseCase, QaSessionUseCase, TranslateUseCase, TypeGenUseCase,
+    EnhanceUseCase, QaApiCallUseCase, QaEventUseCase, QaRunUseCase, QaSessionUseCase,
+    TranslateUseCase, TypeGenUseCase,
 };
 use crate::infrastructure::config::ConfigService;
 use crate::infrastructure::db::qa::init_qa_db;
+use crate::infrastructure::db::qa_api_calls::QaApiCallRepository;
+use crate::infrastructure::db::qa_checkpoints::QaCheckpointRepository;
 use crate::infrastructure::db::qa_events::QaEventRepository;
+use crate::infrastructure::db::qa_runs::QaRunRepository;
 use crate::infrastructure::db::qa_sessions::QaRepository;
 use crate::infrastructure::db::sqlite::SqliteRepository;
 use crate::infrastructure::llm_clients::LLMClient;
@@ -18,23 +23,27 @@ use crate::infrastructure::storage::{
 };
 use crate::interfaces::tauri::{
     delete_api_key, enhance_prompt, get_api_key, get_llm_models, get_translation_history,
-    qa_capture_screenshot, qa_delete_events, qa_end_session, qa_get_session, qa_list_events,
-    qa_list_events_page, qa_list_sessions, qa_record_event, qa_start_session,
-    save_api_key, sync_config, sync_languages, sync_shortcuts, translate_prompt, AppState,
+    qa_append_run_stream_event, qa_capture_native_screenshot, qa_capture_screenshot,
+    qa_create_checkpoint, qa_delete_events, qa_delete_session, qa_end_run, qa_end_session,
+    qa_execute_api_request, qa_explore_session, qa_generate_checkpoint_summary,
+    qa_generate_test_cases, qa_get_session, qa_list_checkpoint_summaries, qa_list_checkpoints,
+    qa_list_events, qa_list_events_page, qa_list_llm_runs, qa_list_run_stream_events,
+    qa_list_screenshots, qa_list_sessions, qa_list_test_cases, qa_open_devtools, qa_record_event,
+    qa_replay_browser, qa_start_browser_recorder, qa_start_run, qa_start_session,
+    qa_stop_browser_recorder, save_api_key, sync_config, sync_languages, sync_shortcuts,
+    translate_prompt, AppState,
 };
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
-use tracing::error;
 use tauri_plugin_clipboard_manager::{Clipboard, ClipboardExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tracing::error;
 use uuid::Uuid;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_env_filter("info").try_init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -56,8 +65,8 @@ pub fn run() {
                 err
             })?;
             let bootstrap_session_id = Uuid::new_v4().to_string();
-            let _bootstrap_session_dir = ensure_session_dir(&qa_sessions_dir, &bootstrap_session_id)
-                .map_err(|err| {
+            let _bootstrap_session_dir =
+                ensure_session_dir(&qa_sessions_dir, &bootstrap_session_id).map_err(|err| {
                     error!(
                         error = %err,
                         session_id = %bootstrap_session_id,
@@ -102,6 +111,18 @@ pub fn run() {
                     .await
                     .expect("Failed to connect QA events database");
                 let qa_event_repo_arc = Arc::new(qa_event_repo);
+                let qa_checkpoint_repo = QaCheckpointRepository::connect(&qa_db_path)
+                    .await
+                    .expect("Failed to connect QA checkpoints database");
+                let qa_checkpoint_repo_arc = Arc::new(qa_checkpoint_repo);
+                let qa_run_repo = QaRunRepository::connect(&qa_db_path)
+                    .await
+                    .expect("Failed to connect QA runs database");
+                let qa_run_repo_arc = Arc::new(qa_run_repo);
+                let qa_api_call_repo = QaApiCallRepository::connect(&qa_db_path)
+                    .await
+                    .expect("Failed to connect QA API calls database");
+                let qa_api_call_repo_arc = Arc::new(qa_api_call_repo);
                 let repo = SqliteRepository::init(&db_url)
                     .await
                     .expect("Failed to initialize database");
@@ -121,6 +142,14 @@ pub fn run() {
                 let qa_session_use_case =
                     QaSessionUseCase::new(qa_repo_arc.clone(), qa_sessions_dir.clone());
                 let qa_event_use_case = QaEventUseCase::new(qa_event_repo_arc.clone());
+                let qa_run_use_case = QaRunUseCase::new(qa_run_repo_arc.clone());
+                let qa_api_call_use_case = QaApiCallUseCase::new(qa_api_call_repo_arc.clone());
+                let qa_ai_use_case = QaAiUseCase::new(
+                    qa_repo_arc.clone(),
+                    qa_event_repo_arc.clone(),
+                    qa_checkpoint_repo_arc.clone(),
+                    llm_client.clone(),
+                );
 
                 let state = AppState {
                     translate_use_case,
@@ -128,7 +157,11 @@ pub fn run() {
                     typegen_use_case,
                     qa_session_use_case,
                     qa_event_use_case,
+                    qa_ai_use_case,
+                    qa_run_use_case,
+                    qa_api_call_use_case,
                     qa_session_id: Mutex::new(None),
+                    qa_recorder: Mutex::new(None),
                     repository: repo_arc,
                     config_service: ConfigService::new(),
                     llm_client: llm_client.clone(),
@@ -183,13 +216,33 @@ pub fn run() {
             sync_shortcuts,
             qa_start_session,
             qa_end_session,
+            qa_start_run,
+            qa_end_run,
+            qa_start_browser_recorder,
+            qa_stop_browser_recorder,
+            qa_append_run_stream_event,
+            qa_list_run_stream_events,
+            qa_execute_api_request,
+            qa_replay_browser,
             qa_record_event,
+            qa_open_devtools,
             qa_list_sessions,
             qa_list_events,
+            qa_list_screenshots,
             qa_capture_screenshot,
+            qa_capture_native_screenshot,
             qa_list_events_page,
             qa_delete_events,
-            qa_get_session
+            qa_delete_session,
+            qa_get_session,
+            qa_create_checkpoint,
+            qa_list_checkpoints,
+            qa_generate_checkpoint_summary,
+            qa_generate_test_cases,
+            qa_list_checkpoint_summaries,
+            qa_list_test_cases,
+            qa_list_llm_runs,
+            qa_explore_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -169,7 +169,7 @@ export default function TranslateTab({
   };
 
   return (
-    <div className="max-w-4xl p-4 mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-7xl px-5 py-10 mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
           <h3 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-app-accent to-blue-400 bg-clip-text text-transparent">

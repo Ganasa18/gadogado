@@ -9,20 +9,29 @@ pub struct QaEventInput {
     pub value: Option<String>,
     pub url: Option<String>,
     pub meta_json: Option<String>,
+    pub run_id: Option<String>,
+    pub checkpoint_id: Option<String>,
+    pub origin: Option<String>,
+    pub recording_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct QaEvent {
     pub id: String,
     pub session_id: String,
+    pub run_id: Option<String>,
+    pub checkpoint_id: Option<String>,
     pub seq: i64,
     pub ts: i64,
     pub event_type: String,
+    pub origin: Option<String>,
+    pub recording_mode: Option<String>,
     pub selector: Option<String>,
     pub element_text: Option<String>,
     pub value: Option<String>,
     pub url: Option<String>,
     pub screenshot_id: Option<String>,
+    pub screenshot_path: Option<String>,
     pub meta_json: Option<String>,
 }
 
@@ -33,4 +42,13 @@ pub struct QaEventPage {
     pub total: i64,
     pub page: i64,
     pub page_size: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QaEventSummary {
+    pub id: String,
+    pub seq: i64,
+    pub ts: i64,
+    pub event_type: String,
 }

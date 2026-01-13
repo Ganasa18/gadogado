@@ -61,6 +61,8 @@ src/
 │ ├── shortcuts/
 │ ├── qa/
 │ ├── token/
+│ ├── translate/
+│ ├── typegen/
 │ ├── tutorial/
 │ └── feedback/
 │

@@ -13,6 +13,7 @@ import TokenTab from "../features/token/TokenTab";
 import SessionManagerTab from "../features/qa/SessionManagerTab";
 import SessionHistoryTab from "../features/qa/SessionHistoryTab";
 import SessionDetailPage from "../features/qa/SessionDetailPage";
+import AiResultsPage from "../features/qa/AiResultsPage";
 
 export const router = createBrowserRouter([
   {
@@ -51,6 +52,10 @@ export const router = createBrowserRouter([
       {
         path: "qa/session/:id",
         element: <SessionDetailPage />,
+      },
+      {
+        path: "qa/session/:id/ai",
+        element: <AiResultsPage />,
       },
       {
         path: "token",

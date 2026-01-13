@@ -1,11 +1,8 @@
-import { JSX, ComponentChildren } from "react";
+import type { ReactNode, TextareaHTMLAttributes } from "react";
 import { cn } from "../../utils/cn";
 
-interface TextAreaProps extends JSX.HTMLAttributes<HTMLTextAreaElement> {
-  children?: ComponentChildren;
-  placeholder?: string;
-  readOnly?: boolean;
-  value?: string;
+interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  children?: ReactNode;
 }
 
 export function TextArea({ className, children, ...props }: TextAreaProps) {

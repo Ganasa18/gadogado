@@ -16,7 +16,7 @@
         "width": 800,
         "height": 600
       },
-       {
+      {
         "label": "loading",
         "title": "gadogado Loading",
         "width": 360,
@@ -33,7 +33,14 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/**",
+          "$APPDATA/qa_sessions/**/*"
+        ]
+      }
     }
   },
   "bundle": {

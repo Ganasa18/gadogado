@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { MessageSquare, Send, User, Mail, MessageCircle } from "lucide-react";
 import { Button } from "../../shared/components/Button";
 
@@ -7,7 +7,7 @@ export default function FeedbackTab() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
 
-  const handleSubmit = (e: Event) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     console.log("Feedback submitted:", { name, email, message });
     // Reset form or show success message

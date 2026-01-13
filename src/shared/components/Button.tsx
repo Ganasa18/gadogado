@@ -1,10 +1,10 @@
-import { ComponentChildren, JSX } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "../../utils/cn";
 
-interface ButtonProps extends JSX.HTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "ghost" | "destructive";
   size?: "sm" | "md" | "lg" | "icon";
-  children?: ComponentChildren;
+  children?: ReactNode;
   disabled?: boolean;
   type?: "button" | "submit" | "reset";
 }
@@ -36,6 +36,7 @@ export function Button({
 
   return (
     <button
+      type={type}
       className={cn(
         "inline-flex items-center justify-center rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] transition-all",
         variants[variant],

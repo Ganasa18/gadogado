@@ -127,7 +127,7 @@ export default function EnhanceTab() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-6xl mx-auto px-5 py-10 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="space-y-2">
         <h3 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <Sparkles className="w-6 h-6 text-yellow-500" />

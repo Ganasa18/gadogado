@@ -36,7 +36,7 @@ export default function HistoryTab() {
 
   if (selectedItem) {
     return (
-      <div className="max-w-4xl mx-auto p-4 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="max-w-6xl mx-auto px-5 py-10 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button

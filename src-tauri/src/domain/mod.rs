@@ -2,5 +2,8 @@ pub mod error;
 pub mod llm_config;
 pub mod prompt;
 pub mod qa_event;
+pub mod qa_checkpoint;
 pub mod qa_session;
+pub mod qa_run;
+pub mod qa_api_call;
 pub mod typegen;

@@ -32,19 +32,26 @@
 ## TABLE: sessions
 
 Purpose:
-Represents one QA recording session (usually one happy path).
+Represents one QA recording session (browser or API).
+
 
 Columns:
 
 - id TEXT PRIMARY KEY
 - title TEXT NOT NULL
 - goal TEXT NOT NULL
+- session_type TEXT NOT NULL -- browser | api
 - is_positive_case INTEGER NOT NULL DEFAULT 1
+- target_url TEXT
+- api_base_url TEXT
+- auth_profile_json TEXT
+- source_session_id TEXT
 - app_version TEXT
 - os TEXT
 - started_at INTEGER NOT NULL
 - ended_at INTEGER
 - notes TEXT
+
 
 Indexes:
 
@@ -55,7 +62,8 @@ Indexes:
 ## TABLE: events
 
 Purpose:
-Stores recorded user actions in sequence.
+Stores recorded user actions or API calls in sequence.
+
 
 Columns:
 
@@ -170,7 +178,32 @@ Indexes:
 
 ---
 
+## TABLE: replay_runs
+
+Purpose:
+Stores replay outcomes for browser and API sessions.
+
+Columns:
+
+- id TEXT PRIMARY KEY
+- session_id TEXT NOT NULL
+- checkpoint_id TEXT
+- mode TEXT NOT NULL -- browser | api
+- status TEXT NOT NULL -- running | passed | failed
+- error TEXT
+- meta_json TEXT -- includes API method/status when event_type is api_*
+- started_at INTEGER NOT NULL
+- ended_at INTEGER
+
+Indexes:
+
+- idx_replay_runs_session
+- idx_replay_runs_checkpoint
+
+---
+
 ## TABLE: llm_runs
+
 
 Purpose:
 Audit log of all LLM calls (debugging, dedup, cost tracking).
@@ -209,13 +242,19 @@ CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   goal TEXT NOT NULL,
+  session_type TEXT NOT NULL,
   is_positive_case INTEGER NOT NULL DEFAULT 1,
+  target_url TEXT,
+  api_base_url TEXT,
+  auth_profile_json TEXT,
+  source_session_id TEXT,
   app_version TEXT,
   os TEXT,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
   notes TEXT
 );
+
 
 CREATE INDEX IF NOT EXISTS idx_sessions_started_at
   ON sessions(started_at);
@@ -306,6 +345,24 @@ CREATE INDEX IF NOT EXISTS idx_test_cases_checkpoint
 CREATE INDEX IF NOT EXISTS idx_test_cases_dedup
   ON test_cases(dedup_hash);
 
+CREATE TABLE IF NOT EXISTS replay_runs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  checkpoint_id TEXT,
+  mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  meta_json TEXT,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_replay_runs_session
+  ON replay_runs(session_id);
+
+CREATE INDEX IF NOT EXISTS idx_replay_runs_checkpoint
+  ON replay_runs(checkpoint_id);
+
 CREATE TABLE IF NOT EXISTS llm_runs (
   id TEXT PRIMARY KEY,
   scope TEXT NOT NULL,
@@ -317,6 +374,7 @@ CREATE TABLE IF NOT EXISTS llm_runs (
   output_json TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+
 
 CREATE INDEX IF NOT EXISTS idx_llm_runs_scope
   ON llm_runs(scope, scope_id);

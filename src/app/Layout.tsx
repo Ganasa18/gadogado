@@ -14,12 +14,14 @@ import { useSyncConfig } from "../hooks/useSyncConfig";
 import { useSyncLanguages } from "../hooks/useSyncLanguages";
 import { useSyncShortcuts } from "../hooks/useSyncShortcuts";
 import "./App.css";
+import ThemeManager from "../features/theme/ThemeManager";
 
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [capturedText, setCapturedText] = useState<string | null>(null);
   const [popupOpen, setPopupOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { provider, model, shortcutsEnabled } = useSettingsStore(
     useShallow((state) => ({
       provider: state.provider,
@@ -88,6 +90,7 @@ export default function Layout() {
 
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-app-bg text-app-text select-none font-sans flex-col">
+      <ThemeManager />
       <header
         className="flex-none bg-app-bg border-b border-black/20"
         data-purpose="title-bar">
@@ -103,18 +106,57 @@ export default function Layout() {
           <ActiveIcon className="w-3.5 h-3.5" />
           <span>{activeSection}</span>
           <span className="text-gray-600">/</span>
-          <span className="text-white font-medium capitalize">
+          <span className="text-app-text font-medium capitalize">
             {activeLabel}
           </span>
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        <nav className="flex flex-col w-64 border-r border-app-border bg-app-panel">
-          <div className="flex-1 overflow-y-auto py-4 px-4 space-y-6">
+        <nav
+          className={cn(
+            "flex flex-col border-r border-app-border bg-app-panel transition-all duration-200",
+            sidebarCollapsed ? "w-16" : "w-64"
+          )}>
+          <div
+            className={cn(
+              "flex items-center border-b border-app-border px-3 py-3",
+              sidebarCollapsed ? "justify-center" : "justify-between"
+            )}>
+            <span
+              className={cn(
+                "text-[10px] uppercase font-bold text-app-subtext/60 tracking-widest",
+                sidebarCollapsed && "sr-only"
+              )}>
+              Navigation
+            </span>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              aria-label={
+                sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+              }
+              className="h-7 w-7 rounded-md border border-transparent text-app-subtext hover:text-app-text hover:bg-app-card/60 transition-colors">
+              <ChevronRight
+                className={cn(
+                  "w-4 h-4 mx-auto transition-transform",
+                  sidebarCollapsed ? "rotate-0" : "rotate-180"
+                )}
+              />
+            </button>
+          </div>
+          <div
+            className={cn(
+              "flex-1 overflow-y-auto space-y-6",
+              sidebarCollapsed ? "py-4 px-2" : "py-4 px-4"
+            )}>
             {visibleSections.map((section) => (
               <div key={section.id} className="space-y-1.5">
-                <div className="px-2 pb-2 text-[10px] uppercase font-bold text-app-subtext/60 tracking-widest">
+                <div
+                  className={cn(
+                    "px-2 pb-2 text-[10px] uppercase font-bold text-app-subtext/60 tracking-widest",
+                    sidebarCollapsed && "sr-only"
+                  )}>
                   {section.id}
                 </div>
                 {section.items.map((item) => (
@@ -122,6 +164,7 @@ export default function Layout() {
                     key={item.path}
                     item={item}
                     isActive={item.path === activePath}
+                    isCollapsed={sidebarCollapsed}
                     onNavigate={handleNavigate}
                   />
                 ))}
@@ -129,7 +172,11 @@ export default function Layout() {
             ))}
           </div>
 
-          <div className="p-4 mt-auto border-t border-app-border bg-black/10">
+          <div
+            className={cn(
+              "p-4 mt-auto border-t border-app-border bg-black/10",
+              sidebarCollapsed && "hidden"
+            )}>
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between text-[10px]">
                 <span className="text-app-subtext font-medium uppercase tracking-wider">
@@ -137,16 +184,22 @@ export default function Layout() {
                 </span>
                 <span
                   className={`font-bold ${
-                    provider === "local"
+                    provider === "local" ||
+                    provider === "ollama" ||
+                    provider === "llama_cpp"
                       ? "text-app-success"
                       : "text-app-accent"
                   }`}>
                   {provider === "local"
                     ? "Local LLM"
+                    : provider === "ollama"
+                    ? "Ollama"
+                    : provider === "llama_cpp"
+                    ? "Llama.cpp"
                     : provider === "openai"
-                    ? "Open Api"
-                    : provider === "google"
-                    ? "Google"
+                    ? "OpenAI"
+                    : provider === "gemini"
+                    ? "Gemini"
                     : "DLL"}
                 </span>
               </div>
@@ -154,7 +207,7 @@ export default function Layout() {
                 <span className="text-app-subtext font-medium uppercase tracking-wider">
                   Model ID
                 </span>
-                <span className="truncate  text-app-text font-bold">
+                <span className="truncate text-app-text font-bold">
                   {model}
                 </span>
               </div>
@@ -186,10 +239,12 @@ function NavItemButton({
   item,
   isActive,
   onNavigate,
+  isCollapsed,
 }: {
   item: NavItem;
   isActive: boolean;
   onNavigate: (path: string) => void;
+  isCollapsed: boolean;
 }) {
   const Icon = item.icon;
 
@@ -198,8 +253,11 @@ function NavItemButton({
       type="button"
       onClick={() => onNavigate(item.path)}
       aria-current={isActive ? "page" : undefined}
+      aria-label={item.label}
+      title={item.label}
       className={cn(
-        "flex w-full justify-start gap-3 h-9 px-3 transition-all duration-200 rounded-md border border-transparent items-center bg-transparent",
+        "flex w-full h-9 transition-all duration-200 rounded-md border border-transparent items-center bg-transparent",
+        isCollapsed ? "justify-center px-2" : "justify-start gap-3 px-3",
         isActive
           ? "bg-app-card text-app-text border-app-border shadow-sm"
           : "text-app-subtext hover:text-app-text hover:bg-app-card/50"
@@ -210,11 +268,12 @@ function NavItemButton({
       <span
         className={cn(
           "text-[13px] font-medium tracking-tight",
+          isCollapsed && "sr-only",
           isActive && "text-app-text"
         )}>
         {item.label}
       </span>
-      {isActive && (
+      {!isCollapsed && isActive && (
         <ChevronRight className="ml-auto w-3.5 h-3.5 text-app-subtext/40" />
       )}
     </button>

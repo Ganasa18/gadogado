@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-export type NavSectionId = "Workspace" | "Configuration" | "QA Tools";
+export type NavSectionId = "Workspace" | "Configuration" | "QA Tools Automation" | "QA Tools";
 
 export interface NavItem {
   path: string;
@@ -66,7 +66,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    id: "QA Tools",
+    id: "QA Tools Automation",
     items: [
       {
         path: "/qa",

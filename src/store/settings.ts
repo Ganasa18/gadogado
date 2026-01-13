@@ -1,7 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type LLMProvider = "local" | "openai" | "google" | "dll";
+export type LLMProvider =
+  | "local"
+  | "openai"
+  | "gemini"
+  | "ollama"
+  | "llama_cpp"
+  | "dll";
 
 export interface PromptTemplate {
   id: string;
@@ -54,6 +60,7 @@ export interface SettingsState {
   shortcuts: Record<"translate" | "popup" | "enhance" | "terminal", string>;
   sourceLang: string;
   targetLang: string;
+  aiOutputLanguage: string;
   promptTemplates: PromptTemplate[];
   activeTemplateId: string;
   setProvider: (provider: LLMProvider) => void;
@@ -70,6 +77,7 @@ export interface SettingsState {
   resetShortcuts: () => void;
   setSourceLang: (lang: string) => void;
   setTargetLang: (lang: string) => void;
+  setAiOutputLanguage: (lang: string) => void;
   setActiveTemplateId: (id: string) => void;
   addPromptTemplate: (template: Omit<PromptTemplate, "id" | "isDefault">) => void;
   updatePromptTemplate: (id: string, updates: Partial<PromptTemplate>) => void;
@@ -87,6 +95,24 @@ const DEFAULT_SHORTCUTS: SettingsState["shortcuts"] = {
 const LEGACY_SHORTCUTS = {
   translate: new Set(["Ctrl + Alt + T"]),
   terminal: new Set(["Ctrl + Alt + R", "Ctrl + Alt + U"]),
+};
+
+const PROVIDER_BASE_URLS: Record<LLMProvider, string> = {
+  local: "http://localhost:1234/v1",
+  openai: "https://api.openai.com/v1",
+  gemini: "https://generativelanguage.googleapis.com/v1beta/models",
+  ollama: "http://localhost:11434/v1",
+  llama_cpp: "http://localhost:8080/v1",
+  dll: "",
+};
+
+const normalizeProvider = (value?: string): LLMProvider => {
+  if (value === "google" || value === "gemini") return "gemini";
+  if (value === "openai") return "openai";
+  if (value === "ollama") return "ollama";
+  if (value === "llama_cpp") return "llama_cpp";
+  if (value === "dll") return "dll";
+  return "local";
 };
 
 function normalizeShortcuts(
@@ -121,6 +147,7 @@ export const useSettingsStore = create<SettingsState>()(
       shortcuts: DEFAULT_SHORTCUTS,
       sourceLang: "Auto Detect",
       targetLang: "English",
+      aiOutputLanguage: "English",
       promptTemplates: DEFAULT_TEMPLATES,
       activeTemplateId: "default",
       setProvider: (provider) => set({ provider }),
@@ -140,6 +167,7 @@ export const useSettingsStore = create<SettingsState>()(
       resetShortcuts: () => set({ shortcuts: DEFAULT_SHORTCUTS }),
       setSourceLang: (sourceLang) => set({ sourceLang }),
       setTargetLang: (targetLang) => set({ targetLang }),
+      setAiOutputLanguage: (aiOutputLanguage) => set({ aiOutputLanguage }),
       setActiveTemplateId: (activeTemplateId) => set({ activeTemplateId }),
       addPromptTemplate: (template) =>
         set((state) => ({
@@ -175,23 +203,23 @@ export const useSettingsStore = create<SettingsState>()(
           baseUrl?: string;
         };
         if (persisted.provider) {
+          const provider = normalizeProvider(persisted.provider);
           return {
             ...persisted,
+            provider,
+            baseUrl:
+              persisted.baseUrl ?? PROVIDER_BASE_URLS[provider] ?? persisted.baseUrl,
+            aiOutputLanguage: persisted.aiOutputLanguage ?? "English",
             shortcuts: normalizeShortcuts(persisted.shortcuts),
           };
         }
-        const provider = persisted.mode;
-        const baseUrl =
-          persisted.baseUrl ??
-          (provider === "google"
-            ? "https://generativelanguage.googleapis.com/v1beta/models"
-            : provider === "openai"
-            ? "https://api.openai.com/v1"
-            : "");
+        const provider = normalizeProvider(persisted.mode);
+        const baseUrl = persisted.baseUrl ?? PROVIDER_BASE_URLS[provider];
         return {
           ...persisted,
           provider,
           baseUrl,
+          aiOutputLanguage: persisted.aiOutputLanguage ?? "English",
           shortcuts: normalizeShortcuts(persisted.shortcuts),
         };
       },

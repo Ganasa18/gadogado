@@ -13,7 +13,9 @@ export interface LlmConfigOverrides {
 const providerLabels: Record<LLMProvider, LlmConfig["provider"]> = {
   local: "Local",
   openai: "OpenAI",
-  google: "Google",
+  gemini: "Google",
+  ollama: "OpenAI",
+  llama_cpp: "OpenAI",
   dll: "DLL",
 };
 
@@ -26,14 +28,18 @@ export function createLlmConfig(
   },
   overrides: LlmConfigOverrides = {}
 ): LlmConfig {
-  const isLocal = settings.provider === "local";
+  const isEmbeddedLocal = settings.provider === "local";
+  const isKeyless =
+    settings.provider === "local" ||
+    settings.provider === "ollama" ||
+    settings.provider === "llama_cpp";
   return {
     provider: providerLabels[settings.provider],
-    base_url: isLocal
+    base_url: isEmbeddedLocal
       ? LOCAL_LLM_BASE_URL
       : overrides.baseUrl ?? settings.baseUrl,
     model: overrides.model ?? settings.model,
-    api_key: isLocal ? null : settings.apiKey || null,
+    api_key: isKeyless ? null : settings.apiKey || null,
     max_tokens: overrides.maxTokens ?? 1024,
     temperature: overrides.temperature ?? 0.7,
   };

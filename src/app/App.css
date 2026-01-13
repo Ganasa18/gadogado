@@ -125,6 +125,121 @@
   --ring: 212.7 26.8% 83.9%;
 }
 
+/* Pastel Blue Theme */
+[data-theme='pastel-blue'] {
+  --background: 210 40% 98%;
+  --foreground: 215 25% 15%;
+  /* Darker slate-blue for text */
+  --card: 210 40% 100%;
+  --card-foreground: 215 25% 15%;
+  --popover: 210 40% 100%;
+  --popover-foreground: 215 25% 15%;
+  --primary: 198 80% 60%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 198 40% 90%;
+  --secondary-foreground: 198 30% 30%;
+  --muted: 215 20% 94%;
+  /* Slate-tinted muted */
+  --muted-foreground: 215 25% 35%;
+  --accent: 198 80% 94%;
+  --accent-foreground: 198 80% 40%;
+  --border: 214 32% 91%;
+  /* Slate-200 equivalent */
+  --input: 214 32% 91%;
+  --ring: 198 80% 60%;
+
+  /* Custom overrides for Layout components */
+  --color-app-bg: hsl(210 40% 98%);
+  --color-app-panel: hsl(210 40% 96%);
+  --color-app-card: hsl(210 40% 100%);
+  --color-app-border: hsl(214 32% 91%);
+  --color-app-text: hsl(215 25% 15%);
+  --color-app-subtext: hsl(215 25% 35%);
+}
+
+[data-theme='pastel-blue'].dark {
+  --background: 198 20% 8%;
+  --foreground: 198 10% 96%;
+  --card: 198 20% 12%;
+  --card-foreground: 198 10% 96%;
+  --popover: 198 20% 12%;
+  --popover-foreground: 198 10% 96%;
+  --primary: 198 70% 50%;
+  --primary-foreground: 198 10% 5%;
+  --secondary: 198 20% 18%;
+  --secondary-foreground: 198 10% 90%;
+  --muted: 198 15% 15%;
+  --muted-foreground: 198 10% 60%;
+  --accent: 198 40% 20%;
+  --accent-foreground: 198 70% 80%;
+  --border: 198 20% 20%;
+  --input: 198 20% 20%;
+  --ring: 198 70% 50%;
+
+  --color-app-bg: hsl(198 20% 8%);
+  --color-app-panel: hsl(198 20% 10%);
+  --color-app-card: hsl(198 20% 12%);
+  --color-app-border: hsl(198 20% 20%);
+  --color-app-text: hsl(198 10% 96%);
+  --color-app-subtext: hsl(198 10% 60%);
+}
+
+/* Pastel Green Theme */
+[data-theme='pastel-green'] {
+  --background: 142 40% 98%;
+  --foreground: 142 35% 15%;
+  /* Darker green-slate for text */
+  --card: 142 40% 100%;
+  --card-foreground: 142 35% 15%;
+  --popover: 142 40% 100%;
+  --popover-foreground: 142 35% 15%;
+  --primary: 142 60% 55%;
+  --primary-foreground: 142 40% 98%;
+  --secondary: 142 40% 90%;
+  --secondary-foreground: 142 30% 30%;
+  --muted: 150 20% 94%;
+  --muted-foreground: 150 25% 35%;
+  --accent: 142 60% 94%;
+  --accent-foreground: 142 60% 35%;
+  --border: 142 30% 90%;
+  --input: 142 30% 90%;
+  --ring: 142 60% 55%;
+
+  --color-app-bg: hsl(142 40% 98%);
+  --color-app-panel: hsl(142 40% 96%);
+  --color-app-card: hsl(142 40% 100%);
+  --color-app-border: hsl(142 30% 90%);
+  --color-app-text: hsl(142 35% 15%);
+  --color-app-subtext: hsl(142 25% 35%);
+}
+
+[data-theme='pastel-green'].dark {
+  --background: 142 20% 8%;
+  --foreground: 142 10% 96%;
+  --card: 142 20% 12%;
+  --card-foreground: 142 10% 96%;
+  --popover: 142 20% 12%;
+  --popover-foreground: 142 10% 96%;
+  --primary: 142 50% 50%;
+  --primary-foreground: 142 10% 5%;
+  --secondary: 142 20% 18%;
+  --secondary-foreground: 142 10% 90%;
+  --muted: 142 15% 15%;
+  --muted-foreground: 142 10% 60%;
+  --accent: 142 40% 20%;
+  --accent-foreground: 142 50% 80%;
+  --border: 142 20% 20%;
+  --input: 142 20% 20%;
+  --ring: 142 50% 50%;
+
+  --color-app-bg: hsl(142 20% 8%);
+  --color-app-panel: hsl(142 20% 10%);
+  --color-app-card: hsl(142 20% 12%);
+  --color-app-border: hsl(142 20% 20%);
+  --color-app-text: hsl(142 10% 96%);
+  --color-app-subtext: hsl(142 10% 60%);
+}
+
 @layer base {
   * {
     @apply border-border;

@@ -19,7 +19,9 @@ const LANGUAGES = [
   { value: "PHP", label: "PHP" },
 ];
 
-const MODES = [
+type TypeGenMode = "auto" | "offline" | "llm";
+
+const MODES: Array<{ value: TypeGenMode; label: string }> = [
   { value: "auto", label: "Auto" },
   { value: "offline", label: "Offline" },
   { value: "llm", label: "LLM" },
@@ -31,7 +33,7 @@ export default function TypeGenTab() {
   const [copied, setCopied] = useState(false);
   const [rootName, setRootName] = useState("Root");
   const [language, setLanguage] = useState("TypeScript");
-  const [mode, setMode] = useState("auto");
+  const [mode, setMode] = useState<TypeGenMode>("auto");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const { provider, model } = useSettingsStore();
   const { addItem } = useHistoryStore();
@@ -107,7 +109,7 @@ export default function TypeGenTab() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-4 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-6xl mx-auto p-4 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -137,7 +139,7 @@ export default function TypeGenTab() {
           <label className="text-[10px] uppercase tracking-widest text-app-subtext">
             Mode
           </label>
-          <Select
+          <Select<TypeGenMode>
             options={MODES}
             value={mode}
             onChange={setMode}

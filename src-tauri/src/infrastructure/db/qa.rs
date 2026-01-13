@@ -1,6 +1,9 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous,
+};
 use std::path::Path;
 use std::str::FromStr;
+use std::time::Duration;
 
 const QA_SCHEMA: &str = include_str!("../../resources/qa/schema.sql");
 
@@ -8,9 +11,15 @@ pub async fn init_qa_db(db_path: &Path) -> Result<(), String> {
     let db_url = db_path_to_url(db_path)?;
     let options = SqliteConnectOptions::from_str(&db_url)
         .map_err(|e| format!("Failed to parse QA database URL: {e}"))?
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
 
-    let pool = SqlitePool::connect_with(options)
+    let pool = SqlitePoolOptions::new()
+        .max_connections(4)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect_with(options)
         .await
         .map_err(|e| format!("Failed to connect to QA database: {e}"))?;
 

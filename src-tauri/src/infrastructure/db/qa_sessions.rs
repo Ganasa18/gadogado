@@ -1,8 +1,11 @@
 use crate::domain::error::{AppError, Result};
 use crate::domain::qa_session::QaSession;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous,
+};
 use std::path::Path;
 use std::str::FromStr;
+use std::time::Duration;
 
 pub struct QaRepository {
     pool: SqlitePool,
@@ -13,9 +16,15 @@ impl QaRepository {
         let db_url = db_path_to_url(db_path)?;
         let options = SqliteConnectOptions::from_str(&db_url)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse QA DB URL: {e}")))?
-            .create_if_missing(true);
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(5));
 
-        let pool = SqlitePool::connect_with(options)
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect_with(options)
             .await
             .map_err(|e| AppError::DatabaseError(format!("Failed to connect QA DB: {e}")))?;
 
@@ -24,13 +33,18 @@ impl QaRepository {
 
     pub async fn insert_session(&self, session: &QaSession) -> Result<()> {
         sqlx::query(
-            "INSERT INTO sessions (id, title, goal, is_positive_case, app_version, os, started_at, ended_at, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, title, goal, session_type, is_positive_case, target_url, api_base_url, auth_profile_json, source_session_id, app_version, os, started_at, ended_at, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&session.id)
         .bind(&session.title)
         .bind(&session.goal)
+        .bind(&session.session_type)
         .bind(if session.is_positive_case { 1 } else { 0 })
+        .bind(&session.target_url)
+        .bind(&session.api_base_url)
+        .bind(&session.auth_profile_json)
+        .bind(&session.source_session_id)
         .bind(&session.app_version)
         .bind(&session.os)
         .bind(session.started_at)
@@ -45,7 +59,7 @@ impl QaRepository {
 
     pub async fn get_session(&self, session_id: &str) -> Result<QaSession> {
         let session = sqlx::query_as::<_, QaSessionEntity>(
-            "SELECT id, title, goal, is_positive_case, app_version, os, started_at, ended_at, notes
+            "SELECT id, title, goal, session_type, is_positive_case, target_url, api_base_url, auth_profile_json, source_session_id, app_version, os, started_at, ended_at, notes
              FROM sessions WHERE id = ?",
         )
         .bind(session_id)
@@ -90,7 +104,7 @@ impl QaRepository {
 
     pub async fn list_sessions(&self, limit: i64) -> Result<Vec<QaSession>> {
         let sessions = sqlx::query_as::<_, QaSessionEntity>(
-            "SELECT id, title, goal, is_positive_case, app_version, os, started_at, ended_at, notes
+            "SELECT id, title, goal, session_type, is_positive_case, target_url, api_base_url, auth_profile_json, source_session_id, app_version, os, started_at, ended_at, notes
              FROM sessions ORDER BY started_at DESC LIMIT ?",
         )
         .bind(limit)
@@ -99,6 +113,110 @@ impl QaRepository {
         .map_err(|e| AppError::DatabaseError(format!("Failed to list QA sessions: {e}")))?;
 
         Ok(sessions.into_iter().map(|session| session.into()).collect())
+    }
+
+    pub async fn delete_session_cascade(&self, session_id: &str) -> Result<u64> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to start QA delete txn: {e}")))?;
+
+        sqlx::query(
+            "DELETE FROM checkpoint_summaries WHERE checkpoint_id IN (
+                SELECT id FROM checkpoints WHERE session_id = ?
+            )",
+        )
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete checkpoint summaries: {e}")))?;
+
+        sqlx::query("DELETE FROM test_cases WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete test cases: {e}")))?;
+
+        sqlx::query(
+            "DELETE FROM llm_runs WHERE scope_id IN (
+                SELECT id FROM checkpoints WHERE session_id = ?
+            )",
+        )
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete LLM runs: {e}")))?;
+
+        sqlx::query("DELETE FROM artifacts WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete artifacts: {e}")))?;
+
+        sqlx::query("DELETE FROM api_calls WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete api calls: {e}")))?;
+
+        sqlx::query("DELETE FROM ai_actions WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete ai actions: {e}")))?;
+
+        sqlx::query("DELETE FROM test_case_runs WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete test case runs: {e}")))?;
+
+        sqlx::query("DELETE FROM replay_runs WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete replay runs: {e}")))?;
+
+        sqlx::query(
+            "DELETE FROM run_stream_events WHERE run_id IN (
+                SELECT id FROM session_runs WHERE session_id = ?
+            )",
+        )
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete run stream events: {e}")))?;
+
+        sqlx::query("DELETE FROM session_runs WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete session runs: {e}")))?;
+
+        sqlx::query("DELETE FROM events WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete events: {e}")))?;
+
+        sqlx::query("DELETE FROM checkpoints WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete checkpoints: {e}")))?;
+
+        let result = sqlx::query("DELETE FROM sessions WHERE id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete session: {e}")))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to commit delete: {e}")))?;
+
+        Ok(result.rows_affected())
     }
 }
 
@@ -114,7 +232,12 @@ struct QaSessionEntity {
     id: String,
     title: String,
     goal: String,
+    session_type: String,
     is_positive_case: i64,
+    target_url: Option<String>,
+    api_base_url: Option<String>,
+    auth_profile_json: Option<String>,
+    source_session_id: Option<String>,
     app_version: Option<String>,
     os: Option<String>,
     started_at: i64,
@@ -128,7 +251,12 @@ impl From<QaSessionEntity> for QaSession {
             id: entity.id,
             title: entity.title,
             goal: entity.goal,
+            session_type: entity.session_type,
             is_positive_case: entity.is_positive_case != 0,
+            target_url: entity.target_url,
+            api_base_url: entity.api_base_url,
+            auth_profile_json: entity.auth_profile_json,
+            source_session_id: entity.source_session_id,
             app_version: entity.app_version,
             os: entity.os,
             started_at: entity.started_at,

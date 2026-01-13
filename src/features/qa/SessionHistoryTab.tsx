@@ -1,21 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardList, FolderClock, RefreshCcw, Search } from "lucide-react";
+import type { MouseEvent } from "react";
+import { ClipboardList, FolderClock, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { invoke } from "@tauri-apps/api/core";
 import { useToastStore } from "../../store/toast";
 import { isTauri } from "../../utils/tauri";
+import { QaSession } from "../../types/qa/types";
 
-interface QaSession {
-  id: string;
-  title: string;
-  goal: string;
-  is_positive_case: boolean;
-  app_version?: string | null;
-  os?: string | null;
-  started_at: number;
-  ended_at?: number | null;
-  notes?: string | null;
-}
+
 
 const DEFAULT_LIMIT = 75;
 
@@ -25,6 +17,7 @@ export default function SessionHistoryTab() {
   const [sessions, setSessions] = useState<QaSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const filteredSessions = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -33,7 +26,8 @@ export default function SessionHistoryTab() {
       return (
         session.title.toLowerCase().includes(term) ||
         session.goal.toLowerCase().includes(term) ||
-        session.id.toLowerCase().includes(term)
+        session.id.toLowerCase().includes(term) ||
+        session.session_type.toLowerCase().includes(term)
       );
     });
   }, [search, sessions]);
@@ -64,6 +58,32 @@ export default function SessionHistoryTab() {
 
   const handleOpenSession = (session: QaSession) => {
     navigate(`/qa/session/${session.id}`);
+  };
+
+  const handleDeleteSession = async (
+    session: QaSession,
+    event: MouseEvent<HTMLButtonElement>
+  ) => {
+    event.stopPropagation();
+    if (!isTauri()) {
+      addToast("QA history is only available in the Tauri app", "error");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Delete session "${session.title}" and all related data?`
+    );
+    if (!confirmed) return;
+    setDeletingId(session.id);
+    try {
+      await invoke("qa_delete_session", { sessionId: session.id });
+      addToast("Session deleted", "success");
+      await loadSessions();
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to delete session", "error");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -114,6 +134,7 @@ export default function SessionHistoryTab() {
             {filteredSessions.map((session) => (
               <button
                 key={session.id}
+
                 type="button"
                 onClick={() => handleOpenSession(session)}
                 className="w-full text-left rounded-md border border-app-border bg-black/20 hover:border-emerald-500/40 transition p-3">
@@ -121,13 +142,26 @@ export default function SessionHistoryTab() {
                   <div className="text-xs font-semibold text-app-text">
                     {session.title || "Untitled Session"}
                   </div>
-                  <div
-                    className={`text-[10px] px-2 py-0.5 rounded-full ${
-                      session.ended_at
-                        ? "bg-[#2b2b2b] text-gray-300"
-                        : "bg-[#173121] text-emerald-200"
-                    }`}>
-                    {session.ended_at ? "Ended" : "Active"}
+                  <div className="flex items-center gap-2">
+                    <div className="text-[10px] px-2 py-0.5 rounded-full bg-[#141b2a] text-sky-200">
+                      {session.session_type.toUpperCase()}
+                    </div>
+                    <div
+                      className={`text-[10px] px-2 py-0.5 rounded-full ${
+                        session.ended_at
+                          ? "bg-[#2b2b2b] text-gray-300"
+                          : "bg-[#173121] text-emerald-200"
+                      }`}>
+                      {session.ended_at ? "Ended" : "Active"}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => handleDeleteSession(session, event)}
+                      className="text-[10px] px-2 py-1 rounded-full border border-red-500/40 text-red-200 hover:border-red-400 transition disabled:opacity-50"
+                      disabled={deletingId === session.id}
+                      aria-label={`Delete session ${session.title}`}>
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
                 <div className="text-[10px] text-app-subtext mt-1 line-clamp-2">
