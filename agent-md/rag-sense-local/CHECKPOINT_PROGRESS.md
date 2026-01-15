@@ -8,6 +8,7 @@ Design goals:
 - Strict **checkpoint discipline** (no skipping)
 - Friendly for **local / limited‑context LLMs**
 - Can be split later into per‑feature `.md` files without rewriting
+- Always use add_log() function to logging user but not sensitive data only
 
 ---
 
@@ -116,19 +117,22 @@ Exit Criteria:
 **Goal**: Fast similarity search with minimal RAM.
 
 ```sql
-CREATE VIRTUAL TABLE vss_chunks USING vss0(
-  content_embedding(384)
-);
+-- NOTE: sqlite-vss doesn't support Windows x86_64.
+-- Alternative: Store embeddings in document_chunks (BLOB) and build ANN index in the app.
+-- Persist the ANN index as a cache file for fast reload; rebuild when embeddings change.
+ALTER TABLE document_chunks ADD COLUMN embedding_api BLOB;
 ```
 
 Rules:
 
-- `rowid` MUST match `document_chunks.id`
-- No raw text stored in vector table
+- `embedding_api` stores 384-dimensional float arrays (all-MiniLM-L6-v2)
+- Build/search using ANN (HNSW/USearch) in application code
+- No external vector database extension required
 
 Exit Criteria:
 
-- Vector count equals chunk count
+- Embeddings stored successfully
+- ANN index loads fast and search returns relevant chunks
 
 ---
 
@@ -167,7 +171,7 @@ Exit Criteria:
 Exit Criteria:
 
 - App launches without errors
-- SQLite + sqlite‑vss loaded
+- SQLite ready + vector index backend loaded (no sqlite-vss)
 - LLM endpoint reachable
 
 Checkpoint:
@@ -292,13 +296,28 @@ Checkpoint:
 
 ### Feature 08 — Web Crawler
 
-**Goal**: Turn documentation sites into local knowledge.
+Web Ingestion (Playwright + OCR + Fassembed)
+**Goal**: Convert live web pages into clean, embedded Markdown chunks using local tools.
+Steps:
+
+Capture full page via Playwright (viewport sweep, headless)
+If text extraction fails or is low-quality → fallback to screenshot + Tesseract OCR
+Preprocess images to greyscale before OCR
+Convert output to structured Markdown
+Chunk and embed using Fassembed (not all-MiniLM)
+Store artifacts (tiles/, out.md, links.json) alongside document record
+Exit Criteria:
+One documentation site fully ingested
+Both HTML-text and OCR-text paths work
+Embeddings generated via Fassembed
+No infinite crawl loops
 
 Exit Criteria:
 
 - Internal links crawled
 - HTML cleaned
 - Loop protection active
+- use playwright
 
 Checkpoint:
 

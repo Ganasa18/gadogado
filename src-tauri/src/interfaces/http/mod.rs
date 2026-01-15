@@ -636,7 +636,7 @@ fn inject_recorder_script(html: &str, base_url: &str) -> String {
 }
 
 pub fn add_log_entry(
-    logs: &Arc<Mutex<Vec<LogEntry>>>,
+    logs: &Mutex<Vec<LogEntry>>,
     level: &str,
     source: &str,
     message: &str,
@@ -655,7 +655,7 @@ pub fn add_log_entry(
     entry
 }
 
-pub fn add_log(logs: &Arc<Mutex<Vec<LogEntry>>>, level: &str, source: &str, message: &str) {
+pub fn add_log(logs: &Mutex<Vec<LogEntry>>, level: &str, source: &str, message: &str) {
     add_log_entry(logs, level, source, message);
 }
 

@@ -7,3 +7,4 @@ pub mod qa_session;
 pub mod qa_run;
 pub mod qa_api_call;
 pub mod typegen;
+pub mod rag_entities;

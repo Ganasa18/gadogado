@@ -1,5 +1,6 @@
 import type { LLMProvider } from "../../store/settings";
 import type { LlmConfig } from "./apiClient";
+import type { EmbeddingProvider } from "../../store/settings";
 
 export const LOCAL_LLM_BASE_URL = "http://localhost:1234/v1";
 
@@ -42,5 +43,19 @@ export function createLlmConfig(
     api_key: isKeyless ? null : settings.apiKey || null,
     max_tokens: overrides.maxTokens ?? 1024,
     temperature: overrides.temperature ?? 0.7,
+  };
+}
+
+export function createEmbeddingConfig(settings: {
+  provider: EmbeddingProvider;
+  model: string;
+}): LlmConfig {
+  return {
+    provider: providerLabels[settings.provider as LLMProvider],
+    base_url: "",
+    model: settings.model,
+    api_key: null,
+    max_tokens: 1024,
+    temperature: 0.7,
   };
 }

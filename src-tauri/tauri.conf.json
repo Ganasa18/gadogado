@@ -14,7 +14,8 @@
       {
         "title": "gadogado",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "dragDropEnabled": true
       },
       {
         "label": "loading",
@@ -52,6 +53,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/ocr/**/*"
     ]
+  },
+  "plugins": {
+    "dialog": null
   }
 }

@@ -11,10 +11,11 @@ import { cn } from "../utils/cn";
 import { useShortcutEvents } from "../hooks/useShortcutEvents";
 import { useQaEventRecorder } from "../hooks/useQaEventRecorder";
 import { useSyncConfig } from "../hooks/useSyncConfig";
+import { useSyncEmbeddingConfig } from "../hooks/useSyncEmbeddingConfig";
 import { useSyncLanguages } from "../hooks/useSyncLanguages";
 import { useSyncShortcuts } from "../hooks/useSyncShortcuts";
 import "./App.css";
-import ThemeManager from "../features/theme/ThemeManager";
+import ThemeManager from "../features/theme";
 
 export default function Layout() {
   const location = useLocation();
@@ -31,6 +32,7 @@ export default function Layout() {
   );
 
   useSyncConfig();
+  useSyncEmbeddingConfig();
   useSyncLanguages();
   useSyncShortcuts();
   useQaEventRecorder();

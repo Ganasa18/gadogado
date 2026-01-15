@@ -10,10 +10,18 @@ import {
   MessageSquare,
   Settings,
   Wand2,
+  Database,
+  MessageCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-export type NavSectionId = "Workspace" | "Configuration" | "QA Tools Automation" | "QA Tools";
+export type NavSectionId =
+  | "Workspace"
+  | "Configuration"
+  | "QA Tools Automation"
+  | "QA Tools"
+  | "RAG"
+  | "Dev Tools";
 
 export interface NavItem {
   path: string;
@@ -44,6 +52,18 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: Wand2,
         section: "Workspace",
       },
+
+      {
+        path: "/history",
+        label: "History",
+        icon: History,
+        section: "Workspace",
+      },
+    ],
+  },
+  {
+    id: "Dev Tools",
+    items: [
       {
         path: "/typegen",
         label: "Type Generator",
@@ -51,16 +71,32 @@ export const NAV_SECTIONS: NavSection[] = [
         section: "Workspace",
       },
       {
-        path: "/history",
-        label: "History",
-        icon: History,
-        section: "Workspace",
-      },
-
-      {
         path: "/token",
         label: "JWT Inspector",
         icon: KeyRound,
+        section: "Workspace",
+      },
+      {
+        path: "/visualize-json",
+        label: "Visualize Tools",
+        icon: KeyRound,
+        section: "Workspace",
+      },
+    ],
+  },
+  {
+    id: "RAG",
+    items: [
+      {
+        path: "/rag",
+        label: "RAG Knowledge Base",
+        icon: Database,
+        section: "Workspace",
+      },
+      {
+        path: "/rag-chat",
+        label: "RAG Chat",
+        icon: MessageCircle,
         section: "Workspace",
       },
     ],

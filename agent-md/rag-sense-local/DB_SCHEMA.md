@@ -24,19 +24,20 @@ FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
 
 -- 3. Tabel Chunk Teks (Data Tak Terstruktur: PDF, DOCX, TXT, WEB)
 CREATE TABLE document_chunks (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-doc_id INTEGER,
-content TEXT NOT NULL,
-page_number INTEGER,
-chunk_index INTEGER,
-FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id INTEGER,
+  content TEXT NOT NULL,
+  page_number INTEGER,
+  chunk_index INTEGER,
+  token_count INTEGER,
+  embedding_api BLOB, -- Vector embedding (f32[384] serialized)
+  FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
 );
 
--- 4. Tabel Vektor (Pencarian Semantik via sqlite-vss)
--- Menggunakan model all-MiniLM-L6-v2 (384 dimensi)
-CREATE VIRTUAL TABLE vss_chunks USING vss0(
-content_embedding(384)
-);
+-- 4. Index Vektor (ANN di aplikasi, tanpa sqlite-vss)
+-- Gunakan index ANN (mis. HNSW/USearch) di aplikasi untuk performa setara.
+-- Index bisa disimpan sebagai file cache dan di-rebuild saat embeddings berubah.
+-- Sumber data index: document_chunks.embedding_api
 
 -- 5. Tabel Transaksi (Data Terstruktur: EXCEL)
 -- Dibuat fleksibel untuk query presisi (SQL-to-Text)

@@ -9,6 +9,8 @@ export type LLMProvider =
   | "llama_cpp"
   | "dll";
 
+export type EmbeddingProvider = "local";
+
 export interface PromptTemplate {
   id: string;
   name: string;
@@ -55,6 +57,8 @@ export interface SettingsState {
   apiKey: string;
   baseUrl: string;
   localModels: string[];
+  embeddingProvider: EmbeddingProvider;
+  embeddingModel: string;
   shortcutsEnabled: boolean;
   autoTranslate: boolean;
   shortcuts: Record<"translate" | "popup" | "enhance" | "terminal", string>;
@@ -68,6 +72,8 @@ export interface SettingsState {
   setApiKey: (key: string) => void;
   setBaseUrl: (url: string) => void;
   setLocalModels: (models: string[]) => void;
+  setEmbeddingProvider: (provider: EmbeddingProvider) => void;
+  setEmbeddingModel: (model: string) => void;
   setShortcutsEnabled: (enabled: boolean) => void;
   setAutoTranslate: (enabled: boolean) => void;
   setShortcut: (
@@ -142,6 +148,8 @@ export const useSettingsStore = create<SettingsState>()(
       apiKey: "",
       baseUrl: "https://api.openai.com/v1",
       localModels: [],
+      embeddingProvider: "local",
+      embeddingModel: "all-minilm-l6-v2",
       shortcutsEnabled: true,
       autoTranslate: true,
       shortcuts: DEFAULT_SHORTCUTS,
@@ -155,6 +163,8 @@ export const useSettingsStore = create<SettingsState>()(
       setApiKey: (apiKey) => set({ apiKey }),
       setBaseUrl: (baseUrl) => set({ baseUrl }),
       setLocalModels: (localModels) => set({ localModels }),
+      setEmbeddingProvider: (embeddingProvider) => set({ embeddingProvider }),
+      setEmbeddingModel: (embeddingModel) => set({ embeddingModel }),
       setShortcutsEnabled: (shortcutsEnabled) => set({ shortcutsEnabled }),
       setAutoTranslate: (autoTranslate) => set({ autoTranslate }),
       setShortcut: (action, combo) =>
@@ -209,6 +219,8 @@ export const useSettingsStore = create<SettingsState>()(
             provider,
             baseUrl:
               persisted.baseUrl ?? PROVIDER_BASE_URLS[provider] ?? persisted.baseUrl,
+            embeddingProvider: persisted.embeddingProvider ?? "local",
+            embeddingModel: persisted.embeddingModel ?? "all-minilm-l6-v2",
             aiOutputLanguage: persisted.aiOutputLanguage ?? "English",
             shortcuts: normalizeShortcuts(persisted.shortcuts),
           };
@@ -219,6 +231,8 @@ export const useSettingsStore = create<SettingsState>()(
           ...persisted,
           provider,
           baseUrl,
+          embeddingProvider: persisted.embeddingProvider ?? "local",
+          embeddingModel: persisted.embeddingModel ?? "all-minilm-l6-v2",
           aiOutputLanguage: persisted.aiOutputLanguage ?? "English",
           shortcuts: normalizeShortcuts(persisted.shortcuts),
         };

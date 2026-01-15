@@ -4,6 +4,8 @@ use crate::application::use_cases::qa_api_call::QaApiCallUseCase;
 use crate::application::use_cases::qa_event::QaEventUseCase;
 use crate::application::use_cases::qa_run::QaRunUseCase;
 use crate::application::use_cases::qa_session::QaSessionUseCase;
+use crate::application::use_cases::rag_ingestion::RagIngestionUseCase;
+use crate::application::use_cases::retrieval_service::RetrievalService;
 use crate::application::use_cases::translate::TranslateUseCase;
 use crate::application::use_cases::typegen::TypeGenUseCase;
 use crate::domain::error::{AppError, Result};
@@ -13,6 +15,7 @@ use crate::domain::qa_checkpoint::{QaCheckpoint, QaCheckpointSummary, QaLlmRun, 
 use crate::domain::qa_event::{QaEvent, QaEventInput, QaEventPage};
 use crate::domain::qa_run::{QaRunStreamEvent, QaRunStreamInput, QaSessionRun};
 use crate::domain::qa_session::QaSession;
+use crate::infrastructure::db::rag::repository::RagRepository;
 use crate::infrastructure::db::sqlite::SqliteRepository;
 use crate::infrastructure::storage::{
     ensure_qa_sessions_root, ensure_session_dir, ensure_session_screenshots_dir,
@@ -29,6 +32,9 @@ use uuid::Uuid;
 use crate::infrastructure::config::ConfigService;
 use crate::infrastructure::llm_clients::LLMClient;
 use crate::interfaces::http::{add_log, add_log_entry, LogEntry};
+use crate::application::use_cases::embedding_service::EmbeddingService;
+
+pub mod rag_commands;
 use base64::Engine as _;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::multipart::{Form, Part};
@@ -48,9 +54,13 @@ pub struct AppState {
     pub qa_ai_use_case: QaAiUseCase,
     pub qa_run_use_case: QaRunUseCase,
     pub qa_api_call_use_case: QaApiCallUseCase,
+    pub rag_ingestion_use_case: RagIngestionUseCase,
+    pub retrieval_service: Arc<RetrievalService>,
+    pub embedding_service: Arc<EmbeddingService>,
     pub qa_session_id: Mutex<Option<String>>,
     pub qa_recorder: Mutex<Option<QaRecorderHandle>>,
     pub repository: Arc<SqliteRepository>,
+    pub rag_repository: Arc<RagRepository>,
     pub config_service: ConfigService,
     pub llm_client: Arc<dyn LLMClient + Send + Sync>,
     pub last_config: Mutex<LLMConfig>,
@@ -510,7 +520,7 @@ pub async fn get_llm_models(
 #[tauri::command]
 pub async fn sync_config(state: State<'_, Arc<AppState>>, config: LLMConfig) -> Result<()> {
     let mut last_config = state.last_config.lock().unwrap();
-    *last_config = config;
+    *last_config = config.clone();
     add_log(
         &state.logs,
         "INFO",
@@ -518,6 +528,24 @@ pub async fn sync_config(state: State<'_, Arc<AppState>>, config: LLMConfig) -> 
         &format!(
             "Synced config: provider={:?} base_url={} model={}",
             last_config.provider, last_config.base_url, last_config.model
+        ),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_embedding_config(
+    state: State<'_, Arc<AppState>>,
+    config: LLMConfig,
+) -> Result<()> {
+    state.embedding_service.update_config(config.clone());
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!(
+            "Embedding service configured with provider={:?}, model={}",
+            config.provider, config.model
         ),
     );
     Ok(())
@@ -544,6 +572,12 @@ pub fn sync_shortcuts(
     terminal: String,
 ) -> std::result::Result<(), String> {
     crate::register_shortcuts(&app, enabled, &translate, &enhance, &popup, &terminal)
+}
+
+#[tauri::command]
+pub async fn get_logs(state: State<'_, Arc<AppState>>) -> Result<Vec<LogEntry>> {
+    let logs = state.logs.lock().unwrap();
+    Ok(logs.clone())
 }
 
 #[tauri::command]

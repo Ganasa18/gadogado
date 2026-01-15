@@ -3,10 +3,12 @@ mod domain;
 mod infrastructure;
 mod interfaces;
 
+use crate::application::use_cases::embedding_service::EmbeddingService;
 use crate::application::use_cases::qa_ai::QaAiUseCase;
+use crate::application::use_cases::retrieval_service::RetrievalService;
 use crate::application::{
     EnhanceUseCase, QaApiCallUseCase, QaEventUseCase, QaRunUseCase, QaSessionUseCase,
-    TranslateUseCase, TypeGenUseCase,
+    RagIngestionUseCase, TranslateUseCase, TypeGenUseCase,
 };
 use crate::infrastructure::config::ConfigService;
 use crate::infrastructure::db::qa::init_qa_db;
@@ -15,6 +17,8 @@ use crate::infrastructure::db::qa_checkpoints::QaCheckpointRepository;
 use crate::infrastructure::db::qa_events::QaEventRepository;
 use crate::infrastructure::db::qa_runs::QaRunRepository;
 use crate::infrastructure::db::qa_sessions::QaRepository;
+use crate::infrastructure::db::rag::connection::init_rag_db;
+use crate::infrastructure::db::rag::repository::RagRepository;
 use crate::infrastructure::db::sqlite::SqliteRepository;
 use crate::infrastructure::llm_clients::LLMClient;
 use crate::infrastructure::llm_clients::RouterClient;
@@ -22,17 +26,55 @@ use crate::infrastructure::storage::{
     ensure_qa_sessions_root, ensure_session_dir, resolve_app_data_dir,
 };
 use crate::interfaces::tauri::{
-    delete_api_key, enhance_prompt, get_api_key, get_llm_models, get_translation_history,
-    qa_append_run_stream_event, qa_capture_native_screenshot, qa_capture_screenshot,
-    qa_create_checkpoint, qa_delete_events, qa_delete_session, qa_end_run, qa_end_session,
-    qa_execute_api_request, qa_explore_session, qa_generate_checkpoint_summary,
-    qa_generate_test_cases, qa_get_session, qa_list_checkpoint_summaries, qa_list_checkpoints,
-    qa_list_events, qa_list_events_page, qa_list_llm_runs, qa_list_run_stream_events,
-    qa_list_screenshots, qa_list_sessions, qa_list_test_cases, qa_open_devtools, qa_record_event,
-    qa_replay_browser, qa_start_browser_recorder, qa_start_run, qa_start_session,
-    qa_stop_browser_recorder, save_api_key, sync_config, sync_languages, sync_shortcuts,
-    translate_prompt, AppState,
+    AppState,
+    get_logs,
+    sync_config,
+    sync_embedding_config,
+    sync_languages,
+    sync_shortcuts,
+    translate_prompt,
+    enhance_prompt,
+    get_translation_history,
+    save_api_key,
+    get_api_key,
+    delete_api_key,
+    get_llm_models,
+    qa_start_session,
+    qa_end_session,
+    qa_start_run,
+    qa_end_run,
+    qa_start_browser_recorder,
+    qa_stop_browser_recorder,
+    qa_append_run_stream_event,
+    qa_list_run_stream_events,
+    qa_list_sessions,
+    qa_get_session,
+    qa_execute_api_request,
+    qa_replay_browser,
+    qa_record_event,
+    qa_open_devtools,
+    qa_list_events,
+    qa_list_screenshots,
+    qa_capture_screenshot,
+    qa_list_events_page,
+    qa_delete_events,
+    qa_delete_session,
+    qa_create_checkpoint,
+    qa_list_checkpoints,
+    qa_generate_checkpoint_summary,
+    qa_generate_test_cases,
+    qa_list_checkpoint_summaries,
+    qa_list_test_cases,
+    qa_list_llm_runs,
+    qa_capture_native_screenshot,
+    qa_explore_session,
 };
+use crate::interfaces::tauri::rag_commands::{
+    rag_create_collection, rag_delete_collection, rag_delete_document, rag_get_collection,
+    rag_get_document, rag_hybrid_search, rag_import_file, rag_import_web, rag_list_chunks,
+    rag_list_collections, rag_list_documents, rag_list_excel_data, rag_query,
+};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
@@ -49,6 +91,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -56,6 +99,109 @@ pub fn run() {
                 error!(error = %err, "Failed to resolve app data dir");
                 err
             })?;
+
+            let mut tesseract_log: Option<String> = None;
+            let mut tesseract_lib_log: Option<String> = None;
+            let mut pdftoppm_log: Option<String> = None;
+            let mut tessdata_log: Option<String> = None;
+            let mut ocr_root_log: Option<String> = None;
+
+            let os_folder = match std::env::consts::OS {
+                "windows" => "windows",
+                "macos" => "macos",
+                "linux" => "linux",
+                other => other,
+            };
+            let tesseract_name = if std::env::consts::OS == "windows" {
+                "tesseract.exe"
+            } else {
+                "tesseract"
+            };
+
+            let resource_dir = app_handle.path().resource_dir().ok();
+            let mut ocr_root = resource_dir
+                .as_ref()
+                .map(|dir| dir.join("ocr"));
+
+            if ocr_root.as_ref().map(|dir| dir.exists()).unwrap_or(false) == false {
+                ocr_root = Some(
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("resources")
+                        .join("ocr"),
+                );
+            }
+
+            if let Some(ocr_root) = &ocr_root {
+                ocr_root_log = Some(format!("Using OCR resources at {}", ocr_root.display()));
+                let tesseract_path = ocr_root.join(os_folder).join(tesseract_name);
+                if tesseract_path.exists() {
+                    std::env::set_var("TESSERACT_CMD", &tesseract_path);
+                    tesseract_log = Some(format!(
+                        "Using bundled Tesseract at {}",
+                        tesseract_path.display()
+                    ));
+                } else {
+                    tesseract_log = Some(format!(
+                        "Bundled Tesseract not found at {}",
+                        tesseract_path.display()
+                    ));
+                }
+
+                let pdftoppm_name = if std::env::consts::OS == "windows" {
+                    "pdftoppm.exe"
+                } else {
+                    "pdftoppm"
+                };
+                let pdftoppm_path = ocr_root.join(os_folder).join(pdftoppm_name);
+                if pdftoppm_path.exists() {
+                    std::env::set_var("PDFTOPPM_CMD", &pdftoppm_path);
+                    pdftoppm_log = Some(format!(
+                        "Using bundled pdftoppm at {}",
+                        pdftoppm_path.display()
+                    ));
+                }
+
+                let lib_dir = ocr_root.join(os_folder).join("lib");
+                if lib_dir.exists() {
+                    let env_key = if std::env::consts::OS == "macos" {
+                        "DYLD_LIBRARY_PATH"
+                    } else if std::env::consts::OS == "linux" {
+                        "LD_LIBRARY_PATH"
+                    } else {
+                        ""
+                    };
+                    if !env_key.is_empty() {
+                        let separator = if std::env::consts::OS == "windows" { ";" } else { ":" };
+                        let new_value = match std::env::var(env_key) {
+                            Ok(existing) if !existing.is_empty() => {
+                                format!("{}{}{}", lib_dir.display(), separator, existing)
+                            }
+                            _ => lib_dir.display().to_string(),
+                        };
+                        std::env::set_var(env_key, new_value);
+                        tesseract_lib_log = Some(format!(
+                            "Using bundled Tesseract libs at {}",
+                            lib_dir.display()
+                        ));
+                    }
+                }
+
+                let tessdata_path = ocr_root.join("tessdata");
+                if tessdata_path.exists() {
+                    std::env::set_var("TESSDATA_PREFIX", &tessdata_path);
+                    tessdata_log = Some(format!(
+                        "Using bundled tessdata at {}",
+                        tessdata_path.display()
+                    ));
+                }
+            }
+
+            let ocr_root_log = ocr_root_log.clone();
+            let tesseract_log = tesseract_log.clone();
+            let tesseract_lib_log = tesseract_lib_log.clone();
+            let pdftoppm_log = pdftoppm_log.clone();
+            let tessdata_log = tessdata_log.clone();
+            let logs_for_init = Arc::new(Mutex::new(Vec::new()));
             let qa_sessions_dir = ensure_qa_sessions_root(&app_data_dir).map_err(|err| {
                 error!(
                     error = %err,
@@ -79,6 +225,9 @@ pub fn run() {
             let qa_db_path = app_data_dir.join("qa_recorder.db");
             println!("Initializing QA database at: {}", qa_db_path.display());
 
+            let rag_db_path = app_data_dir.join("rag_sense.db");
+            println!("Initializing RAG database at: {}", rag_db_path.display());
+
             let db_path = app_data_dir.join("promptbridge.db");
             let db_path_str = db_path.to_string_lossy().replace("\\", "/");
             let db_url = format!("sqlite://{}", db_path_str);
@@ -86,6 +235,44 @@ pub fn run() {
             println!("Initializing database at: {}", db_url);
 
             tauri::async_runtime::block_on(async move {
+                init_rag_db(&rag_db_path)
+                    .await
+                    .expect("Failed to initialize RAG database");
+                println!("Initialized RAG database at: {}", rag_db_path.display());
+                match std::fs::metadata(&rag_db_path) {
+                    Ok(meta) => {
+                        crate::interfaces::http::add_log(
+                            &logs_for_init,
+                            "INFO",
+                            "RAG",
+                            &format!(
+                                "RAG database file created: {} ({} bytes)",
+                                rag_db_path.display(),
+                                meta.len()
+                            ),
+                        );
+                        println!(
+                            "RAG database file created: {} ({} bytes)",
+                            rag_db_path.display(),
+                            meta.len()
+                        );
+                    },
+                    Err(err) => {
+                        crate::interfaces::http::add_log(
+                            &logs_for_init,
+                            "ERROR",
+                            "RAG",
+                            &format!("RAG database file missing after init: {} ({})", rag_db_path.display(), err),
+                        );
+                        println!(
+                            "RAG database file missing after init: {} ({})",
+                            rag_db_path.display(),
+                            err
+                        );
+                    },
+                }
+                println!("RAG database ready, proceeding to QA database init");
+
                 init_qa_db(&qa_db_path)
                     .await
                     .expect("Failed to initialize QA database");
@@ -123,6 +310,12 @@ pub fn run() {
                     .await
                     .expect("Failed to connect QA API calls database");
                 let qa_api_call_repo_arc = Arc::new(qa_api_call_repo);
+
+                let rag_repo = RagRepository::connect(&rag_db_path)
+                    .await
+                    .expect("Failed to connect RAG database");
+                let rag_repo_arc = Arc::new(rag_repo);
+
                 let repo = SqliteRepository::init(&db_url)
                     .await
                     .expect("Failed to initialize database");
@@ -131,6 +324,22 @@ pub fn run() {
                 let logs = Arc::new(Mutex::new(Vec::new()));
                 let logs_for_server = logs.clone();
                 let logs_for_setup = logs.clone();
+
+                if let Some(message) = &ocr_root_log {
+                    crate::interfaces::http::add_log(&logs, "INFO", "RAG", message);
+                }
+                if let Some(message) = &tesseract_log {
+                    crate::interfaces::http::add_log(&logs, "INFO", "RAG", message);
+                }
+                if let Some(message) = &tesseract_lib_log {
+                    crate::interfaces::http::add_log(&logs, "INFO", "RAG", message);
+                }
+                if let Some(message) = &pdftoppm_log {
+                    crate::interfaces::http::add_log(&logs, "INFO", "RAG", message);
+                }
+                if let Some(message) = &tessdata_log {
+                    crate::interfaces::http::add_log(&logs, "INFO", "RAG", message);
+                }
 
                 let llm_client: Arc<dyn LLMClient + Send + Sync> = Arc::new(RouterClient::new());
 
@@ -151,6 +360,24 @@ pub fn run() {
                     llm_client.clone(),
                 );
 
+                let embedding_config = crate::domain::llm_config::LLMConfig {
+                    provider: crate::domain::llm_config::LLMProvider::Local,
+                    base_url: "".to_string(),
+                    model: "all-minilm-l6-v2".to_string(),
+                    api_key: None,
+                    max_tokens: Some(1024),
+                    temperature: Some(0.7),
+                };
+                let embedding_service = Arc::new(EmbeddingService::new(embedding_config.clone()));
+                let rag_ingestion_use_case = RagIngestionUseCase::with_embedding_service(
+                    rag_repo_arc.clone(),
+                    embedding_service.clone(),
+                );
+                let retrieval_service = Arc::new(RetrievalService::new(
+                    rag_repo_arc.clone(),
+                    embedding_service.clone(),
+                ));
+
                 let state = AppState {
                     translate_use_case,
                     enhance_use_case,
@@ -160,9 +387,13 @@ pub fn run() {
                     qa_ai_use_case,
                     qa_run_use_case,
                     qa_api_call_use_case,
+                    rag_ingestion_use_case,
+                    retrieval_service,
+                    embedding_service,
                     qa_session_id: Mutex::new(None),
                     qa_recorder: Mutex::new(None),
                     repository: repo_arc,
+                    rag_repository: rag_repo_arc,
                     config_service: ConfigService::new(),
                     llm_client: llm_client.clone(),
                     last_config: Mutex::new(crate::domain::llm_config::LLMConfig::default()),
@@ -212,8 +443,10 @@ pub fn run() {
             delete_api_key,
             get_llm_models,
             sync_config,
+            sync_embedding_config,
             sync_languages,
             sync_shortcuts,
+            get_logs,
             qa_start_session,
             qa_end_session,
             qa_start_run,
@@ -242,7 +475,20 @@ pub fn run() {
             qa_list_checkpoint_summaries,
             qa_list_test_cases,
             qa_list_llm_runs,
-            qa_explore_session
+            qa_explore_session,
+            rag_create_collection,
+            rag_get_collection,
+            rag_list_collections,
+            rag_delete_collection,
+            rag_get_document,
+            rag_delete_document,
+            rag_list_documents,
+            rag_import_file,
+            rag_list_chunks,
+            rag_list_excel_data,
+            rag_hybrid_search,
+            rag_query,
+            rag_import_web
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

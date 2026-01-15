@@ -1,3 +1,5 @@
+pub mod chunking;
+pub mod embedding_service;
 pub mod enhance;
 pub mod qa_ai;
 pub mod qa_event;
@@ -6,3 +8,7 @@ pub mod qa_run;
 pub mod qa_api_call;
 pub mod translate;
 pub mod typegen;
+pub mod rag_ingestion;
+pub mod retrieval_service;
+pub mod prompt_engine;
+pub mod web_crawler;

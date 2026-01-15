@@ -1,19 +1,24 @@
 import { createBrowserRouter } from "react-router";
 import Layout from "./Layout";
 import ErrorBoundary from "./ErrorBoundary";
-import TranslateTab from "../features/translate/TranslateTab";
-import EnhanceTab from "../features/enhance/EnhanceTab";
-import TypeGenTab from "../features/typegen/TypeGenTab";
-import GeneralTab from "../features/settings/GeneralTab";
-import HistoryTab from "../features/history/HistoryTab";
-import ShortcutsTab from "../features/shortcuts/ShortcutsTab";
-import TutorialTab from "../features/tutorial/TutorialTab";
-import FeedbackTab from "../features/feedback/FeedbackTab";
-import TokenTab from "../features/token/TokenTab";
-import SessionManagerTab from "../features/qa/SessionManagerTab";
-import SessionHistoryTab from "../features/qa/SessionHistoryTab";
-import SessionDetailPage from "../features/qa/SessionDetailPage";
-import AiResultsPage from "../features/qa/AiResultsPage";
+import TranslateTab from "../features/translate";
+import EnhanceTab from "../features/enhance";
+import TypeGenTab from "../features/typegen";
+import GeneralTab from "../features/settings";
+import HistoryTab from "../features/history";
+import ShortcutsTab from "../features/shortcuts";
+import TutorialTab from "../features/tutorial";
+import FeedbackTab from "../features/feedback";
+import TokenTab from "../features/token";
+import RagTab from "../features/rag/RagTab";
+import RagChat from "../features/rag/RagChat";
+import VisualizeJsonPage from "../features/visualize-json/VisualizeJsonPage";
+import {
+  AiResultsPage,
+  SessionDetailPage,
+  SessionHistoryTab,
+  SessionManagerTab,
+} from "../features/qa";
 
 export const router = createBrowserRouter([
   {
@@ -58,6 +63,14 @@ export const router = createBrowserRouter([
         element: <AiResultsPage />,
       },
       {
+        path: "rag",
+        element: <RagTab />,
+      },
+      {
+        path: "rag-chat",
+        element: <RagChat />,
+      },
+      {
         path: "token",
         element: <TokenTab />,
       },
@@ -72,6 +85,10 @@ export const router = createBrowserRouter([
       {
         path: "feedback",
         element: <FeedbackTab />,
+      },
+      {
+        path: "visualize-json",
+        element: <VisualizeJsonPage />,
       },
       {
         path: "tutorial",
