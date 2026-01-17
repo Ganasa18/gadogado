@@ -8,5 +8,4 @@ pub use use_cases::qa_api_call::QaApiCallUseCase;
 pub use use_cases::translate::TranslateUseCase;
 pub use use_cases::typegen::TypeGenUseCase;
 pub use use_cases::rag_ingestion::RagIngestionUseCase;
-pub use use_cases::retrieval_service::{QueryResult, RetrievalService};
-pub use use_cases::prompt_engine::PromptEngine;
+pub use use_cases::retrieval_service::QueryResult;

@@ -12,7 +12,9 @@ import FeedbackTab from "../features/feedback";
 import TokenTab from "../features/token";
 import RagTab from "../features/rag/RagTab";
 import RagChat from "../features/rag/RagChat";
+import RagAnalytics from "../features/rag/RagAnalytics";
 import VisualizeJsonPage from "../features/visualize-json/VisualizeJsonPage";
+import MockServerTab from "../features/mock-server";
 import {
   AiResultsPage,
   SessionDetailPage,
@@ -43,6 +45,10 @@ export const router = createBrowserRouter([
         element: <TypeGenTab />,
       },
       {
+        path: "mock-server",
+        element: <MockServerTab />,
+      },
+      {
         path: "history",
         element: <HistoryTab />,
       },
@@ -69,6 +75,10 @@ export const router = createBrowserRouter([
       {
         path: "rag-chat",
         element: <RagChat />,
+      },
+      {
+        path: "rag/analytics",
+        element: <RagAnalytics />,
       },
       {
         path: "token",

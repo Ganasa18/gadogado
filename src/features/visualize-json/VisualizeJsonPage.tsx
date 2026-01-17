@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -28,6 +28,13 @@ import {
   Clock,
   X,
   FileText,
+  Code,
+  Copy,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 
 const VisualizeJsonPage = () => {
@@ -46,7 +53,7 @@ const VisualizeJsonPage = () => {
   const [inputValue, setInputValue] = useState("");
   const { mode } = useThemeStore();
 
-  const { nodes: layoutedNodes, edges: layoutedEdges } = useGraphLayout(
+  const { nodes: layoutedNodes, edges: layoutedEdges, isTooLarge: isGraphTooLarge } = useGraphLayout(
     state.json
   );
 
@@ -58,10 +65,8 @@ const VisualizeJsonPage = () => {
       alert("Invalid JSON format. Please check your input.");
       return;
     }
-    const parsedData = jsonNode.value;
-    const newItem = createHistoryItem(parsedData, 'json', 'Pasted JSON');
-    const updatedHistory = [newItem, ...state.history.slice(0, 9)];
-    saveToLocalStorage({ ...state, json: jsonNode, history: updatedHistory });
+    const newItem = createHistoryItem(jsonNode.value, "json", "Pasted JSON");
+    saveToLocalStorage({ ...state, json: jsonNode, history: [newItem, ...state.history.slice(0, 9)] });
     setInputValue("");
   };
 
@@ -86,10 +91,8 @@ const VisualizeJsonPage = () => {
           return;
         }
 
-        const parsedData = jsonNode.value;
-        const newItem = createHistoryItem(parsedData, format, file.name, content);
-        const updatedHistory = [newItem, ...state.history.slice(0, 9)];
-        saveToLocalStorage({ ...state, json: jsonNode, history: updatedHistory });
+        const newItem = createHistoryItem(jsonNode.value, format, file.name, content);
+        saveToLocalStorage({ ...state, json: jsonNode, history: [newItem, ...state.history.slice(0, 9)] });
         setInputValue("");
       } catch (error) {
         console.error("Error importing file:", error);
@@ -119,7 +122,40 @@ const VisualizeJsonPage = () => {
     setInputValue("");
   };
 
-  const [viewMode, setViewMode] = useState<"list" | "graph" | "table">("graph");
+  useEffect(() => {
+    const handleToggleNode = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      toggleNode(customEvent.detail);
+    };
+    window.addEventListener("toggleNode", handleToggleNode);
+    return () => {
+      window.removeEventListener("toggleNode", handleToggleNode);
+    };
+  }, [toggleNode]);
+
+  const [viewMode, setViewMode] = useState<"list" | "graph" | "table" | "json">(
+    "graph"
+  );
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(15);
+  const [focusedPath, setFocusedPath] = useState<string>("$");
+
+  const findNodeByPath = (root: JsonNode | null, path: string): JsonNode | null => {
+    if (!root) return null;
+    if (root.path === path) return root;
+    if (root.children) {
+      for (const child of root.children) {
+        const found = findNodeByPath(child, path);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const focusedNode = useMemo(() => {
+    return findNodeByPath(state.json, focusedPath) || state.json;
+  }, [state.json, focusedPath]);
 
   const getValuePreview = (node: JsonNode) => {
     if (node.type === "object") {
@@ -129,7 +165,8 @@ const VisualizeJsonPage = () => {
       return `[${node.children?.length ?? 0} items]`;
     }
     if (node.type === "string") {
-      return `"${node.value}"`;
+      const val = String(node.value);
+      return val.length > 150 ? `"${val.substring(0, 150)}..."` : `"${val}"`;
     }
     if (node.type === "boolean") {
       return String(node.value);
@@ -140,20 +177,95 @@ const VisualizeJsonPage = () => {
     return String(node.value ?? "");
   };
 
-  const tableRows = useMemo(() => {
-    if (!state.json) return [] as JsonNode[];
-    const rows: JsonNode[] = [];
-    const walk = (node: JsonNode) => {
-      rows.push(node);
-      node.children?.forEach(walk);
+  const controlsStyle = useMemo(
+    () => ({
+      controlsBg:
+        mode === "dark"
+          ? "rgba(30, 30, 30, 0.95)"
+          : "rgba(255, 255, 255, 0.95)",
+      buttonBg: mode === "dark" ? "#1e1e1e" : "#ffffff",
+      textColor: mode === "dark" ? "#ffffff" : "#000000",
+    }),
+    [mode]
+  );
+
+  const tableData = useMemo(() => {
+    if (!focusedNode) return { type: 'none', headers: [], rows: [] };
+
+    if (focusedNode.type === 'array') {
+      // Check if all children are objects
+      const children = focusedNode.children || [];
+      const allObjects = children.every(c => c.type === 'object');
+      
+      if (allObjects && children.length > 0) {
+        const keysSet = new Set<string>();
+        children.forEach(c => {
+          c.children?.forEach(cc => keysSet.add(cc.key));
+        });
+        const headers = Array.from(keysSet);
+        return { 
+          type: 'array-of-objects', 
+          headers, 
+          rows: children.map(c => {
+            const rowData: Record<string, JsonNode> = {};
+            c.children?.forEach(cc => { rowData[cc.key] = cc; });
+            return { path: c.path, data: rowData };
+          })
+        };
+      } else {
+        return { 
+          type: 'array-plain', 
+          headers: ['Value'], 
+          rows: children.map(c => ({ path: c.path, data: { 'Value': c } as Record<string, JsonNode> })) 
+        };
+      }
+    } else if (focusedNode.type === 'object') {
+      const children = focusedNode.children || [];
+      return {
+        type: 'object',
+        headers: ['Key', 'Value', 'Type'],
+        rows: children.map(c => ({ 
+          path: c.path, 
+          data: { 
+            'Key': { ...c, value: c.key, type: 'string' } as JsonNode, 
+            'Value': c, 
+            'Type': { ...c, value: c.type, type: 'string' } as JsonNode 
+          } as Record<string, JsonNode>
+        }))
+      };
+    }
+
+    return { 
+      type: 'primitive', 
+      headers: ['Value'], 
+      rows: [{ path: focusedNode.path, data: { 'Value': focusedNode } as Record<string, JsonNode> }] 
     };
-    walk(state.json);
-    return rows;
-  }, [state.json]);
+  }, [focusedNode]);
+
+  const totalPages = Math.ceil(tableData.rows.length / rowsPerPage);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [viewMode]);
+
+  const paginatedRows = useMemo(() => {
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    const endIndex = startIndex + rowsPerPage;
+    return tableData.rows.slice(startIndex, endIndex);
+  }, [tableData.rows, currentPage, rowsPerPage]);
+
+  const handleCopyJson = () => {
+    if (state.json) {
+      const jsonString = JSON.stringify(state.json.value, null, 2);
+      navigator.clipboard.writeText(jsonString);
+      setCopiedToClipboard(true);
+      setTimeout(() => setCopiedToClipboard(false), 2000);
+    }
+  };
 
   return (
     <div className={`min-h-screen bg-app-bg text-app-text`}>
-      <div className="container mx-auto p-4 md:p-6 max-w-[1920px]">
+      <div className="container mx-auto p-4 md:p-6 ">
         {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div>
@@ -192,6 +304,15 @@ const VisualizeJsonPage = () => {
                   : "text-app-subtext hover:text-app-text"
               }`}>
               <TableIcon size={14} /> Table
+            </button>
+            <button
+              onClick={() => setViewMode("json")}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === "json"
+                  ? "bg-app-accent text-white"
+                  : "text-app-subtext hover:text-app-text"
+              }`}>
+              <Code size={14} /> JSON
             </button>
           </div>
         </div>
@@ -290,7 +411,15 @@ const VisualizeJsonPage = () => {
                   </div>
                 ) : (
                   <div className="tree-container">
-                    <JsonListView json={state.json} onToggle={toggleNode} />
+                    <JsonListView 
+                      json={state.json} 
+                      onToggle={toggleNode} 
+                      onSelect={(path) => {
+                        setFocusedPath(path);
+                        setViewMode("table");
+                      }}
+                      activePath={focusedPath}
+                    />
                   </div>
                 )}
               </div>
@@ -318,7 +447,7 @@ const VisualizeJsonPage = () => {
                       <div className="flex items-start gap-2">
                         <FileText
                           size={14}
-                          className="text-app-subtext mt-0.5 flex-shrink-0"
+                          className="text-app-subtext mt-0.5"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
@@ -392,30 +521,21 @@ const VisualizeJsonPage = () => {
                 defaultEdgeOptions={{
                   type: "smoothstep",
                   animated: true,
-                  style: { 
-                    stroke: mode === 'dark' ? '#6b7280' : '#d1d5db',
+                  style: {
+                    stroke: mode === "dark" ? "#6b7280" : "#d1d5db",
                     strokeWidth: 1.5,
-                    opacity: 0.6 
+                    opacity: 0.6,
                   },
                 }}
                 className="bg-app-bg">
                 <Background
-                  color={mode === 'dark' ? '#6b7280' : '#d1d5db'}
+                  color={mode === "dark" ? "#6b7280" : "#d1d5db"}
                   variant={BackgroundVariant.Dots}
                   gap={20}
                   size={1}
                   className="opacity-20"
                 />
-                <Controls 
-                  className="!bg-app-panel/95 !border-app-border !text-app-text rounded-lg !backdrop-blur-sm"
-                  style={{ 
-                    '--xy-controls-button-background': 'var(--color-app-bg)',
-                    '--xy-controls-button-hover-background': 'var(--color-app-accent)',
-                    '--xy-controls-button-text': 'var(--color-app-text)',
-                    '--xy-controls-button-hover-text': 'white',
-                    '--xy-controls-border': 'var(--color-app-border)',
-                  } as React.CSSProperties}
-                />
+                <Controls />
                 {/* <MiniMap
                   nodeColor={(node: any) => {
                     const type = node.data?.type;
@@ -446,50 +566,230 @@ const VisualizeJsonPage = () => {
                     <span className="flex-1">Value</span>
                   </div>
                 </Panel>
+                
+                {isGraphTooLarge && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-app-bg/80 z-50 backdrop-blur-sm p-6 text-center">
+                    <div className="max-w-md bg-app-card border border-app-border p-6 rounded-2xl shadow-2xl">
+                      <Layout className="w-12 h-12 text-orange-400 mx-auto mb-4" />
+                      <h3 className="text-lg font-bold text-app-text mb-2">Graph Too Large</h3>
+                      <p className="text-sm text-app-subtext mb-6">
+                        Data ini memiliki lebih dari 150 node yang terlihat. Merendernya sebagai graph akan membuat aplikasi sangat lambat. 
+                        Silakan gunakan <b>Table</b> atau <b>Tree view</b> untuk performa lebih baik, atau tutup beberapa node folder.
+                      </p>
+                      <div className="flex gap-3 justify-center">
+                        <Button 
+                          onClick={() => setViewMode("table")}
+                          className="bg-app-accent text-white"
+                        >
+                          Switch to Table View
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </ReactFlow>
             ) : viewMode === "table" ? (
-              <div className="flex-1 overflow-auto p-0 custom-scrollbar bg-app-bg/50">
-                <table className="w-full text-sm border-collapse">
-                  <thead className="sticky top-0 bg-app-panel z-10 border-b border-app-border">
-                    <tr>
-                      <th className="text-left p-4 pl-6 font-bold text-app-subtext uppercase tracking-widest text-[11px]">
-                        Path
-                      </th>
-                      <th className="text-left p-4 font-bold text-app-subtext uppercase tracking-widest text-[11px]">
-                        Type
-                      </th>
-                      <th className="text-left p-4 pr-6 font-bold text-app-subtext uppercase tracking-widest text-[11px]">
-                        Preview
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {tableRows.map((row) => (
-                      <tr
-                        key={row.path}
-                        className="group hover:bg-app-panel/50 transition-colors">
-                        <td className="p-3 pl-6 font-mono text-xs text-app-accent/70 transition-colors group-hover:text-app-accent">
-                          {row.path}
-                        </td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${
-                              row.type === "object"
-                                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                : row.type === "array"
-                                ? "bg-green-500/10 text-green-500 border-green-500/20"
-                                : "bg-app-panel text-app-subtext border-app-border"
-                            }`}>
-                            {row.type}
-                          </span>
-                        </td>
-                        <td className="p-3 pr-6 font-mono text-xs text-app-subtext group-hover:text-app-text truncate max-w-md">
-                          {getValuePreview(row)}
-                        </td>
-                      </tr>
+              <div className="flex flex-col h-full bg-app-bg/50">
+                {/* Table Header / Breadcrumbs */}
+                <div className="flex-none px-4 py-3 border-b border-app-border bg-app-panel/50 flex items-center gap-2 overflow-x-auto no-scrollbar">
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium py-1">
+                    <button 
+                      onClick={() => setFocusedPath("$")}
+                      className={`px-2 py-1 rounded transition-colors ${focusedPath === "$" ? "bg-app-accent/20 text-app-accent font-bold" : "text-app-subtext hover:bg-app-panel hover:text-app-text"}`}
+                    >
+                      root
+                    </button>
+                    {focusedPath !== "$" && focusedPath.split('.').filter(p => p !== '$').map((part, i, arr) => (
+                      <div key={i} className="flex items-center gap-1">
+                        <span className="text-app-subtext/30 px-1">/</span>
+                        <button
+                          onClick={() => {
+                            const newPath = "$." + arr.slice(0, i + 1).join('.');
+                            setFocusedPath(newPath);
+                          }}
+                          className={`px-2 py-1 rounded transition-colors ${i === arr.length - 1 ? "bg-app-accent/20 text-app-accent font-bold" : "text-app-subtext hover:bg-app-panel hover:text-app-text"}`}
+                        >
+                          {part.replace(/[\[\]]/g, '')}
+                        </button>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-auto custom-scrollbar relative">
+                  <table className="w-full text-sm border-collapse min-w-max">
+                    <thead className="sticky top-0 bg-app-panel z-20 shadow-sm">
+                      <tr>
+                        {tableData.headers.map((header) => (
+                          <th 
+                            key={header} 
+                            className="text-left p-3 px-4 font-bold text-app-subtext uppercase tracking-widest text-[10px] whitespace-nowrap border-b border-app-border bg-app-panel"
+                          >
+                            <div className="flex items-center gap-2">
+                              {header}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-app-border/40">
+                      {paginatedRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={tableData.headers.length} className="p-10 text-center text-app-subtext italic">
+                            No data available in this node
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedRows.map((row, index) => (
+                          <tr
+                            key={row.path + index}
+                            className={`group hover:bg-app-panel/60 transition-colors ${
+                              index % 2 === 0 ? "bg-app-bg/30" : "bg-transparent"
+                            }`}
+                          >
+                            {tableData.headers.map((header) => {
+                              const cellData = (row.data as Record<string, JsonNode>)[header];
+                              return (
+                                <td 
+                                  key={header} 
+                                  className="p-3 px-4 font-mono text-[12px] min-w-[120px] max-w-[400px]"
+                                >
+                                  {cellData ? (
+                                    <div className="flex items-start justify-between gap-2 overflow-hidden">
+                                      <span className={`break-words line-clamp-3 ${
+                                        cellData.type === 'string' ? 'text-orange-400' :
+                                        cellData.type === 'number' ? 'text-purple-400' :
+                                        cellData.type === 'boolean' ? 'text-pink-400' :
+                                        cellData.type === 'object' ? 'text-blue-400' :
+                                        cellData.type === 'array' ? 'text-green-400' :
+                                        'text-app-subtext'
+                                      }`}>
+                                        {getValuePreview(cellData)}
+                                      </span>
+                                      {(cellData.type === 'object' || cellData.type === 'array') && (
+                                        <button 
+                                          onClick={() => setFocusedPath(cellData.path)}
+                                          className="flex-none p-1 rounded bg-app-panel/80 text-[9px] text-app-subtext hover:text-app-accent hover:bg-app-accent/10 transition-all opacity-0 group-hover:opacity-100 border border-app-border"
+                                        >
+                                          Enter
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-app-subtext/20">-</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Enhanced Pagination Controls */}
+                <div className="flex-none px-4 py-3 border-t border-app-border bg-app-panel/80 backdrop-blur-md z-30">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="text-[11px] text-app-subtext font-medium bg-app-bg/50 px-2 py-1 rounded-md border border-app-border">
+                        Showing <span className="text-app-text">{(currentPage - 1) * rowsPerPage + 1}</span> to{" "}
+                        <span className="text-app-text">{Math.min(currentPage * rowsPerPage, tableData.rows.length)}</span>{" "}
+                        of <span className="text-app-text">{tableData.rows.length.toLocaleString()}</span> entries
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-app-subtext uppercase font-bold tracking-tighter">Per Page:</span>
+                        <select 
+                          value={rowsPerPage} 
+                          onChange={(e) => {
+                            setRowsPerPage(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                          className="bg-app-bg text-app-text text-[11px] border border-app-border rounded-md px-1 py-0.5 focus:outline-none focus:border-app-accent"
+                        >
+                          <option value={10}>10</option>
+                          <option value={15}>15</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        className="p-2 rounded-md border border-app-border bg-app-bg text-app-text hover:bg-app-accent hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
+                        title="First Page"
+                      >
+                        <ChevronsLeft size={16} />
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-app-border bg-app-bg text-app-text hover:bg-app-accent hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-bold shadow-sm"
+                      >
+                        <ChevronLeft size={16} /> Prev
+                      </button>
+                      
+                      <div className="flex items-center px-4 h-9 rounded-md bg-app-accent/10 border border-app-accent/20 text-app-accent text-xs font-bold min-w-[80px] justify-center">
+                        {currentPage} <span className="mx-2 opacity-30 text-app-text">/</span> {totalPages}
+                      </div>
+
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-app-border bg-app-bg text-app-text hover:bg-app-accent hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-bold shadow-sm"
+                      >
+                        Next <ChevronRight size={16} />
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        className="p-2 rounded-md border border-app-border bg-app-bg text-app-text hover:bg-app-accent hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
+                        title="Last Page"
+                      >
+                        <ChevronsRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : viewMode === "json" ? (
+              <div className="flex flex-col h-full">
+                <div className="flex-none px-4 py-3 border-b border-app-border flex items-center justify-between bg-app-panel">
+                  <div className="flex items-center gap-2">
+                    <Code className="text-app-accent" size={18} />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-app-text">
+                      Formatted JSON
+                    </h3>
+                  </div>
+                  <button
+                    onClick={handleCopyJson}
+                    disabled={!state.json}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-app-accent hover:bg-app-accent/90 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    {copiedToClipboard ? (
+                      <>
+                        <Check size={16} />
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={16} />
+                        Copy JSON
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="flex-1 overflow-auto p-0 bg-app-bg/50">
+                  <pre className="json-formatter p-6 text-sm font-mono text-app-text whitespace-pre-wrap break-All leading-relaxed">
+                    {state.json
+                      ? JSON.stringify(state.json.value, null, 2)
+                      : "No data loaded"}
+                  </pre>
+                </div>
               </div>
             ) : (
               <div className="flex-1 overflow-auto p-6 bg-app-bg/50">
@@ -505,6 +805,14 @@ const VisualizeJsonPage = () => {
       </div>
 
       <style>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+
         .custom-scrollbar::-webkit-scrollbar {
           width: 8px;
           height: 8px;
@@ -517,6 +825,61 @@ const VisualizeJsonPage = () => {
           border-radius: 4px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: var(--color-app-subtext);
+        }
+        
+        .react-flow__controls {
+          background: ${controlsStyle.controlsBg} !important;
+          border: 1px solid ${
+            mode === "dark" ? "#374151" : "#e5e7eb"
+          } !important;
+          backdrop-filter: blur(8px) !important;
+          border-radius: 8px !important;
+        }
+        
+        .react-flow__controls-button {
+          background: ${controlsStyle.buttonBg} !important;
+          border-bottom: 1px solid ${
+            mode === "dark" ? "#374151" : "#e5e7eb"
+          } !important;
+          color: ${controlsStyle.textColor} !important;
+          fill: ${controlsStyle.textColor} !important;
+        }
+        
+        .react-flow__controls-button:hover {
+          background: var(--color-app-accent, #3b82f6) !important;
+          color: white !important;
+          fill: white !important;
+        }
+        
+        .react-flow__controls-button:last-child {
+          border-bottom: none !important;
+        }
+        
+        .react-flow__controls-button svg {
+          width: 16px !important;
+          height: 16px !important;
+        }
+
+        .json-formatter {
+          line-height: 1.6;
+        }
+        
+        .json-formatter::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        
+        .json-formatter::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        
+        .json-formatter::-webkit-scrollbar-thumb {
+          background: var(--color-app-border);
+          border-radius: 4px;
+        }
+        
+        .json-formatter::-webkit-scrollbar-thumb:hover {
           background: var(--color-app-subtext);
         }
       `}</style>

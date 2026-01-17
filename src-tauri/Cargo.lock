@@ -2078,6 +2078,7 @@ dependencies = [
  "enigo",
  "fastembed",
  "figment",
+ "image 0.25.9",
  "keyring",
  "lopdf",
  "once_cell",

@@ -1,4 +1,4 @@
-
+ 
 import ELK from 'elkjs/lib/elk.bundled.js';
 import { useState, useEffect } from 'react';
 import { JsonNode } from '../types';
@@ -20,6 +20,7 @@ const elkOptions = {
 export const useGraphLayout = (json: JsonNode | null) => {
   const [layoutedNodes, setLayoutedNodes] = useState<any[]>([]);
   const [layoutedEdges, setLayoutedEdges] = useState<any[]>([]);
+  const [isTooLarge, setIsTooLarge] = useState(false);
 
   useEffect(() => {
     if (!json) {
@@ -28,12 +29,30 @@ export const useGraphLayout = (json: JsonNode | null) => {
       return;
     }
 
+    // Performance safety check: Skip layouting if there are too many visible nodes
+    let nodeCount = 0;
+    const countNodes = (node: JsonNode) => {
+      nodeCount++;
+      if (node.expanded !== false && node.children) {
+        node.children.forEach(countNodes);
+      }
+    };
+    countNodes(json);
+
+    if (nodeCount > 150) {
+      setIsTooLarge(true);
+      return;
+    }
+    setIsTooLarge(false);
+
     const nodes: any[] = [];
     const edges: any[] = [];
     const elkNodes: any[] = [];
     const elkEdges: any[] = [];
 
-    const walk = (node: JsonNode) => {
+    const walk = (node: JsonNode, parentExpanded: boolean = true) => {
+      if (!parentExpanded && node.depth !== 0) return;
+
       nodes.push({
         id: node.path,
         type: 'custom',
@@ -42,6 +61,9 @@ export const useGraphLayout = (json: JsonNode | null) => {
           type: node.type,
           value: getValuePreview(node),
           isRoot: node.depth === 0,
+          expanded: node.expanded !== false,
+          hasChildren: !!node.children && node.children.length > 0,
+          path: node.path,
         },
         position: { x: 0, y: 0 },
       });
@@ -52,7 +74,7 @@ export const useGraphLayout = (json: JsonNode | null) => {
         height: NODE_HEIGHT,
       });
 
-      if (node.children) {
+      if (node.children && node.expanded !== false) {
         node.children.forEach((child) => {
           edges.push({
             id: `${node.path}-${child.path}`,
@@ -62,9 +84,9 @@ export const useGraphLayout = (json: JsonNode | null) => {
             animated: true,
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              color: '#3b82f6',
+              color: 'var(--color-app-accent)',
             },
-            style: { stroke: '#3b82f6', strokeWidth: 1.5, opacity: 0.6 }
+            style: { stroke: 'var(--color-app-border)', strokeWidth: 1.5, opacity: 0.6 }
           });
 
           elkEdges.push({
@@ -73,12 +95,12 @@ export const useGraphLayout = (json: JsonNode | null) => {
             targets: [child.path],
           });
 
-          walk(child);
+          walk(child, true);
         });
       }
     };
 
-    walk(json);
+    walk(json, true);
 
     const graph = {
       id: 'root',
@@ -106,7 +128,7 @@ export const useGraphLayout = (json: JsonNode | null) => {
       .catch(console.error);
   }, [json]);
 
-  return { nodes: layoutedNodes, edges: layoutedEdges };
+  return { nodes: layoutedNodes, edges: layoutedEdges, isTooLarge };
 };
 
 function getValuePreview(node: JsonNode) {

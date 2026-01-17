@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
-import { Braces, Brackets, Type, Hash, ToggleLeft, Ban } from "lucide-react";
+import { Braces, Brackets, Type, Hash, ToggleLeft, Ban, ChevronDown, ChevronRight } from "lucide-react";
 
 const getTypeColor = (type: string) => {
   switch (type) {
@@ -66,7 +66,11 @@ const TypeIcon = ({
 };
 
 const CustomGraphNode = ({ data }: NodeProps) => {
-  const { label, type, value, isRoot } = data as any;
+  const { label, type, value, isRoot, expanded, hasChildren, path } = data as any;
+  const onToggle = () => {
+    const event = new CustomEvent('toggleNode', { detail: path });
+    window.dispatchEvent(event);
+  };
 
   return (
     <div
@@ -81,6 +85,18 @@ const CustomGraphNode = ({ data }: NodeProps) => {
 
       <div className="flex items-center justify-between px-3 py-2 border-b border-app-border/40">
         <div className="flex items-center gap-2">
+          {hasChildren && (
+            <button
+              onClick={onToggle}
+              className="p-0.5 rounded hover:bg-app-accent/20 hover:text-app-accent transition"
+              title={expanded ? "Collapse" : "Expand"}>
+              {expanded ? (
+                <ChevronDown size={14} />
+              ) : (
+                <ChevronRight size={14} />
+              )}
+            </button>
+          )}
           <span
             className={`p-1 rounded-md bg-app-bg ${getTypeColor(
               String(type)

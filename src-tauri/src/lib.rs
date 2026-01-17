@@ -25,6 +25,7 @@ use crate::infrastructure::llm_clients::RouterClient;
 use crate::infrastructure::storage::{
     ensure_qa_sessions_root, ensure_session_dir, resolve_app_data_dir,
 };
+use crate::interfaces::mock_server::MockServerState;
 use crate::interfaces::tauri::{
     AppState,
     get_logs,
@@ -39,6 +40,11 @@ use crate::interfaces::tauri::{
     get_api_key,
     delete_api_key,
     get_llm_models,
+    mock_server_get_config,
+    mock_server_start,
+    mock_server_status,
+    mock_server_stop,
+    mock_server_update_config,
     qa_start_session,
     qa_end_session,
     qa_start_run,
@@ -70,9 +76,29 @@ use crate::interfaces::tauri::{
     qa_explore_session,
 };
 use crate::interfaces::tauri::rag_commands::{
-    rag_create_collection, rag_delete_collection, rag_delete_document, rag_get_collection,
-    rag_get_document, rag_hybrid_search, rag_import_file, rag_import_web, rag_list_chunks,
-    rag_list_collections, rag_list_documents, rag_list_excel_data, rag_query,
+    rag_analyze_document_quality, rag_assign_experiment_variant, rag_build_correction_prompt,
+    rag_build_verification_prompt, rag_chat_with_context, rag_clear_cache, rag_clear_feedback,
+    rag_clear_metrics, rag_clear_retrieval_cache, rag_create_collection, rag_deactivate_experiment,
+    rag_delete_chunk, rag_delete_collection, rag_delete_document, rag_enhanced_ocr,
+    rag_filter_low_quality_chunks, rag_get_chunks_with_quality, rag_get_collection,
+    rag_get_config, rag_get_document, rag_get_document_quality_summary, rag_get_feedback_stats,
+    rag_get_metrics, rag_get_recent_feedback, rag_get_retrieval_cache_stats,
+    rag_get_system_stats, rag_health_check, rag_hybrid_retrieval, rag_hybrid_search,
+    rag_import_file, rag_import_web, rag_invalidate_collection_cache, rag_list_chunks,
+    rag_list_collections, rag_list_documents, rag_list_excel_data, rag_list_experiments,
+    rag_query, rag_record_document_quality, rag_record_metric, rag_reembed_chunk,
+    rag_register_experiment, rag_reset_config, rag_run_validation_suite, rag_smart_chunking,
+    rag_submit_feedback, rag_update_cache_config, rag_update_chat_config, rag_update_chunk_content,
+    rag_update_chunking_config, rag_update_config, rag_update_embedding_config,
+    rag_update_ocr_config, rag_update_retrieval_config, rag_validate_config,
+    rag_clear_analytics, rag_get_analytics_summary, rag_get_recent_analytics,
+    // Conversation persistence
+    rag_create_conversation, rag_add_conversation_message, rag_get_conversation_messages,
+    rag_list_conversations, rag_delete_conversation,
+    // Quality analytics
+    rag_get_collection_quality, rag_compute_collection_quality, rag_get_document_warnings,
+    rag_create_document_warning, rag_get_low_quality_documents, rag_record_retrieval_gap,
+    rag_get_retrieval_gaps,
 };
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -324,6 +350,10 @@ pub fn run() {
                 let logs = Arc::new(Mutex::new(Vec::new()));
                 let logs_for_server = logs.clone();
                 let logs_for_setup = logs.clone();
+                let mock_server_state = Arc::new(MockServerState::new(
+                    app_data_dir.join("mock_server.json"),
+                    logs.clone(),
+                ));
 
                 if let Some(message) = &ocr_root_log {
                     crate::interfaces::http::add_log(&logs, "INFO", "RAG", message);
@@ -378,6 +408,21 @@ pub fn run() {
                     embedding_service.clone(),
                 ));
 
+                // Initialize metrics collector and experiment manager
+                let metrics_collector = crate::application::use_cases::rag_metrics::SharedMetricsCollector::new();
+                let experiment_manager = crate::application::use_cases::rag_metrics::SharedExperimentManager::new();
+
+                // Initialize config manager and feedback collector
+                let config_dir = app_data_dir.clone();
+                let config_manager = crate::application::use_cases::rag_config::SharedConfigManager::new(config_dir);
+                let feedback_collector = crate::application::use_cases::rag_config::SharedFeedbackCollector::new(1000);
+                let analytics_logger = crate::application::use_cases::rag_analytics::SharedAnalyticsLogger::new(2000);
+
+                // Initialize conversation service for chat persistence
+                let conversation_service = std::sync::Arc::new(
+                    crate::application::use_cases::conversation_service::ConversationService::new(rag_repo_arc.clone())
+                );
+
                 let state = AppState {
                     translate_use_case,
                     enhance_use_case,
@@ -396,10 +441,17 @@ pub fn run() {
                     rag_repository: rag_repo_arc,
                     config_service: ConfigService::new(),
                     llm_client: llm_client.clone(),
+                    mock_server: mock_server_state.clone(),
                     last_config: Mutex::new(crate::domain::llm_config::LLMConfig::default()),
                     preferred_source: Mutex::new("Auto Detect".to_string()),
                     preferred_target: Mutex::new("English".to_string()),
                     logs: logs.clone(),
+                    metrics_collector,
+                    experiment_manager,
+                    analytics_logger,
+                    config_manager,
+                    feedback_collector,
+                    conversation_service,
                 };
                 let state_arc = Arc::new(state);
 
@@ -447,6 +499,11 @@ pub fn run() {
             sync_languages,
             sync_shortcuts,
             get_logs,
+            mock_server_get_config,
+            mock_server_update_config,
+            mock_server_start,
+            mock_server_stop,
+            mock_server_status,
             qa_start_session,
             qa_end_session,
             qa_start_run,
@@ -488,7 +545,69 @@ pub fn run() {
             rag_list_excel_data,
             rag_hybrid_search,
             rag_query,
-            rag_import_web
+            rag_import_web,
+            rag_enhanced_ocr,
+            rag_smart_chunking,
+            rag_hybrid_retrieval,
+            rag_run_validation_suite,
+            rag_get_analytics_summary,
+            rag_get_recent_analytics,
+            rag_clear_analytics,
+            rag_chat_with_context,
+            rag_build_verification_prompt,
+            rag_build_correction_prompt,
+            rag_health_check,
+            rag_clear_cache,
+            rag_get_metrics,
+            rag_record_metric,
+            rag_record_document_quality,
+            rag_get_document_quality_summary,
+            rag_clear_metrics,
+            rag_get_retrieval_cache_stats,
+            rag_clear_retrieval_cache,
+            rag_invalidate_collection_cache,
+            rag_register_experiment,
+            rag_list_experiments,
+            rag_assign_experiment_variant,
+            rag_deactivate_experiment,
+            rag_get_system_stats,
+            rag_analyze_document_quality,
+            // Phase 5: Configuration management
+            rag_get_config,
+            rag_update_config,
+            rag_update_chunking_config,
+            rag_update_retrieval_config,
+            rag_update_embedding_config,
+            rag_update_ocr_config,
+            rag_update_cache_config,
+            rag_update_chat_config,
+            rag_reset_config,
+            rag_validate_config,
+            // Phase 5: User feedback
+            rag_submit_feedback,
+            rag_get_feedback_stats,
+            rag_get_recent_feedback,
+            rag_clear_feedback,
+            // Phase 5: Chunk management
+            rag_get_chunks_with_quality,
+            rag_delete_chunk,
+            rag_update_chunk_content,
+            rag_reembed_chunk,
+            rag_filter_low_quality_chunks,
+            // Phase 9: Conversation persistence
+            rag_create_conversation,
+            rag_add_conversation_message,
+            rag_get_conversation_messages,
+            rag_list_conversations,
+            rag_delete_conversation,
+            // Phase 10: Quality analytics
+            rag_get_collection_quality,
+            rag_compute_collection_quality,
+            rag_get_document_warnings,
+            rag_create_document_warning,
+            rag_get_low_quality_documents,
+            rag_record_retrieval_gap,
+            rag_get_retrieval_gaps
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

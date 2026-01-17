@@ -83,112 +83,6 @@ Guidelines:
 - Use `components/` only for reusable UI pieces.
 - Split large screens into subcomponents and co-locate them.
 
-## Routing with React Router
-
-### Route Configuration Pattern
-
-Use `createBrowserRouter` for route configuration with support for loaders, actions, and nested routes:
-
-```tsx
-// app/router.tsx
-import { createBrowserRouter } from "react-router";
-import Layout from "./Layout";
-import ErrorBoundary from "./ErrorBoundary";
-
-export const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <Layout />,
-    errorElement: <ErrorBoundary />,
-    children: [
-      {
-        index: true,
-        element: <HomePage />,
-      },
-      {
-        path: "translate",
-        element: <TranslatePage />,
-      },
-      {
-        path: "settings",
-        element: <SettingsPage />,
-      },
-    ],
-  },
-]);
-```
-
-### Layout Component Pattern
-
-Use `<Outlet />` to render nested routes:
-
-```tsx
-// app/Layout.tsx
-import { Outlet } from "react-router";
-
-export default function Layout() {
-  return (
-    <div>
-      <nav>{/* navigation */}</nav>
-      <main>
-        <Outlet />
-      </main>
-    </div>
-  );
-}
-```
-
-### Navigation Patterns
-
-Use `Link` for declarative navigation and `useNavigate` for programmatic navigation:
-
-```tsx
-import { Link, useNavigate } from "react-router";
-
-function MyComponent() {
-  const navigate = useNavigate();
-
-  const handleAction = () => {
-    navigate("/settings");
-  };
-
-  return (
-    <div>
-      <Link to="/translate">Go to Translate</Link>
-      <button onClick={handleAction}>Settings</button>
-    </div>
-  );
-}
-```
-
-### Feature-Based Routes
-
-Each feature can export its own route configuration:
-
-```tsx
-// features/translate/routes.tsx
-export const translateRoutes = {
-  path: "translate",
-  children: [
-    { index: true, element: <TranslateMain /> },
-    { path: "history", element: <TranslateHistory /> },
-  ],
-};
-```
-
-## QA Automation Docs (agent-md/qa-automation-v1)
-
-Purpose:
-
-- Track the QA Recorder MVP plan, schema, dependencies, and feature progress
-- Keep feature docs small and scoped to one milestone
-
-Guidelines:
-
-- Update `CHECKPOINT_PROGRESS.md` whenever a task starts or completes
-- Keep each feature file focused on objectives, tasks, and acceptance criteria
-- Treat `00*_` files as global references (overview, DB, dependencies)
-
 ## Backend Structure (src-tauri/src/)
 
 src-tauri/src/
@@ -231,7 +125,8 @@ src-tauri/src/
 │ │ └── qa_commands.rs # e.g., qa_start_session, qa_end_session
 │ │
 │ └── http/ # Optional: local debug API (e.g., /debug/logs)
-│
+├── resource/ # resource external systems
+│ ├── ocr/ # ocr tersseract
 ├── main.rs # Tauri entry point — minimal setup logic
 └── lib.rs # Public API (optional; mainly for integration tests)
 

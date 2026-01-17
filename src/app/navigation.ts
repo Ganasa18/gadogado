@@ -12,6 +12,8 @@ import {
   Wand2,
   Database,
   MessageCircle,
+  Server,
+  BarChart3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -82,6 +84,12 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: KeyRound,
         section: "Workspace",
       },
+      {
+        path: "/mock-server",
+        label: "Mock Server",
+        icon: Server,
+        section: "Workspace",
+      },
     ],
   },
   {
@@ -97,6 +105,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: "/rag-chat",
         label: "RAG Chat",
         icon: MessageCircle,
+        section: "Workspace",
+      },
+      {
+        path: "/rag/analytics",
+        label: "RAG Analytics",
+        icon: BarChart3,
         section: "Workspace",
       },
     ],

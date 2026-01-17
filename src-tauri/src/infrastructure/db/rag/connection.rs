@@ -1,6 +1,7 @@
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous,
 };
+use sqlx::Row;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
@@ -51,5 +52,39 @@ async fn apply_schema(pool: &SqlitePool) -> Result<(), String> {
             .await
             .map_err(|e| format!("Failed to apply RAG schema statement: {e}"))?;
     }
+    ensure_column(pool, "document_chunks", "page_offset", "INTEGER").await?;
+    Ok(())
+}
+
+async fn ensure_column(
+    pool: &SqlitePool,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), String> {
+    let pragma_query = format!("PRAGMA table_info({})", table);
+    let rows = sqlx::query(&pragma_query)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to inspect {table} schema: {e}"))?;
+    let mut exists = false;
+    for row in rows {
+        let name: String = row
+            .try_get("name")
+            .map_err(|e| format!("Failed to read {table} schema: {e}"))?;
+        if name == column {
+            exists = true;
+            break;
+        }
+    }
+
+    if !exists {
+        let alter_stmt = format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition);
+        sqlx::query(&alter_stmt)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Failed to add {column} column to {table}: {e}"))?;
+    }
+
     Ok(())
 }

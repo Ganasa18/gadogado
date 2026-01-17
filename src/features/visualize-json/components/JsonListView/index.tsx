@@ -14,6 +14,8 @@ interface JsonNode {
 interface JsonListViewProps {
   json: JsonNode | null;
   onToggle: (path: string) => void;
+  onSelect?: (path: string) => void;
+  activePath?: string;
   mode?: 'dark' | 'light' | 'system';
 }
 
@@ -40,7 +42,7 @@ const TypeIcon = ({ type, className }: { type: string; className?: string }) => 
   }
 };
 
-const JsonListView = ({ json, onToggle }: JsonListViewProps) => {
+const JsonListView = ({ json, onToggle, onSelect, activePath }: JsonListViewProps) => {
   if (!json) return null;
 
   const getValuePreview = (node: JsonNode) => {
@@ -61,8 +63,21 @@ const JsonListView = ({ json, onToggle }: JsonListViewProps) => {
         <motion.div
           initial={{ opacity: 0, x: -5 }}
           animate={{ opacity: 1, x: 0 }}
-          className={`flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer transition-all border border-transparent hover:bg-app-panel hover:border-app-border/30`}
-          onClick={() => hasChildren && onToggle(node.path)}
+          className={`flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer transition-all border ${
+            activePath === node.path 
+              ? 'bg-app-accent/10 border-app-accent/30 text-app-accent' 
+              : 'border-transparent hover:bg-app-panel hover:border-app-border/30'
+          }`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (hasChildren && e.shiftKey) {
+              onToggle(node.path);
+            } else if (onSelect) {
+              onSelect(node.path);
+            } else if (hasChildren) {
+              onToggle(node.path);
+            }
+          }}
         >
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             <div className="flex-none w-4 flex justify-center">

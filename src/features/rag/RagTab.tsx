@@ -12,13 +12,15 @@ import {
   Loader2,
   Info,
   ArrowRight,
+  CheckCircle2,
+  AlertCircle,
+  FileCheck,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { RagCollection, RagDocument } from "./types";
 import {
   deleteRagDocument,
-  getLogs,
   importRagFile,
   listRagCollections,
   listRagDocuments,
@@ -26,6 +28,16 @@ import {
 import AnimatedContainer from "../../shared/components/AnimatedContainer";
 
 const SUPPORTED_EXTENSIONS = ["pdf", "docx", "xlsx", "txt", "web"];
+
+// Import status types for user feedback
+type ImportStatus = "idle" | "validating" | "processing" | "chunking" | "embedding" | "complete" | "error";
+
+interface ImportProgress {
+  status: ImportStatus;
+  message: string;
+  fileName?: string;
+  error?: string;
+}
 
 function getFileExtension(filePath: string): string {
   const parts = filePath.split(".");
@@ -50,34 +62,71 @@ function getFileIcon(fileType: string) {
   }
 }
 
+function getStatusIcon(status: ImportStatus) {
+  switch (status) {
+    case "validating":
+    case "processing":
+    case "chunking":
+    case "embedding":
+      return <Loader2 className="w-5 h-5 text-app-accent animate-spin" />;
+    case "complete":
+      return <CheckCircle2 className="w-5 h-5 text-green-500" />;
+    case "error":
+      return <AlertCircle className="w-5 h-5 text-red-500" />;
+    default:
+      return <FileCheck className="w-5 h-5 text-app-text-muted" />;
+  }
+}
+
+function getStatusMessage(status: ImportStatus, fileName?: string): string {
+  const name = fileName ? `"${fileName}"` : "file";
+  switch (status) {
+    case "validating":
+      return `Validating ${name}...`;
+    case "processing":
+      return `Parsing ${name}...`;
+    case "chunking":
+      return `Creating smart chunks...`;
+    case "embedding":
+      return `Generating embeddings...`;
+    case "complete":
+      return `${name} imported successfully. Ready for chat.`;
+    case "error":
+      return `Failed to import ${name}`;
+    default:
+      return "";
+  }
+}
+
 export default function RagTab() {
   const [collections, setCollections] = useState<RagCollection[]>([]);
   const [documents, setDocuments] = useState<RagDocument[]>([]);
-  const [_, setOcrStatus] = useState<{
-    root?: string;
-    tesseract?: string;
-    pdftoppm?: string;
-    tessdata?: string;
-  } | null>(null);
-  const [selectedCollectionId, setSelectedCollectionId] = useState<
-    number | null
-  >(null);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(null);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [newCollectionDescription, setNewCollectionDescription] = useState("");
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const hasDocuments = documents.length > 0;
 
+  // Web import state
   const [webUrl, setWebUrl] = useState("");
   const [maxPages, setMaxPages] = useState(10);
   const [maxDepth, setMaxDepth] = useState(2);
   const [isCrawling, setIsCrawling] = useState(false);
   const [showWebImport, setShowWebImport] = useState(false);
+  const [webCrawlMode, setWebCrawlMode] = useState<"html" | "ocr">("html");
+
+  // Import progress state with real-time feedback
+  const [importProgress, setImportProgress] = useState<ImportProgress>({
+    status: "idle",
+    message: "",
+  });
 
   const selectedCollection = useMemo(() => {
     return collections.find((c) => c.id === selectedCollectionId);
   }, [collections, selectedCollectionId]);
+
+  const isImporting = importProgress.status !== "idle" && importProgress.status !== "complete" && importProgress.status !== "error";
 
   const handleCreateCollection = async () => {
     if (!newCollectionName.trim()) {
@@ -129,8 +178,10 @@ export default function RagTab() {
         ],
       });
 
-      if (selected) {
+      if (typeof selected === "string") {
         await importFile(selected);
+      } else if (Array.isArray(selected) && selected[0]) {
+        await importFile(selected[0]);
       }
     } catch (err) {
       console.error("Failed to open file picker:", err);
@@ -162,7 +213,9 @@ export default function RagTab() {
 
     try {
       await deleteRagDocument(docId);
-      await loadDocuments();
+      if (selectedCollectionId !== null) {
+        await loadDocuments(selectedCollectionId);
+      }
     } catch (err) {
       console.error("Failed to delete document:", err);
       alert("Failed to delete document: " + (err as Error).message);
@@ -206,19 +259,42 @@ export default function RagTab() {
     }
 
     setIsCrawling(true);
+    setImportProgress({
+      status: "processing",
+      message: "Crawling website...",
+      fileName: webUrl,
+    });
+
     try {
       await import("./api").then((m) =>
-        m.importRagWeb(webUrl.trim(), selectedCollectionId, maxPages, maxDepth)
+        m.importRagWeb(
+          webUrl.trim(),
+          selectedCollectionId,
+          maxPages,
+          maxDepth,
+          webCrawlMode
+        )
       );
       setWebUrl("");
       setMaxPages(10);
       setMaxDepth(2);
+      setWebCrawlMode("html");
       setShowWebImport(false);
-      await loadDocuments();
-      alert("Web import completed successfully!");
+      setImportProgress({
+        status: "complete",
+        message: "Web import completed successfully. Ready for chat.",
+        fileName: webUrl,
+      });
+      if (selectedCollectionId !== null) {
+        await loadDocuments(selectedCollectionId);
+      }
     } catch (err) {
       console.error("Failed to import web:", err);
-      alert("Failed to import web: " + (err as Error).message);
+      setImportProgress({
+        status: "error",
+        message: "Failed to import web content",
+        error: (err as Error).message,
+      });
     } finally {
       setIsCrawling(false);
     }
@@ -233,50 +309,22 @@ export default function RagTab() {
     }
   };
 
-  const loadOcrStatus = async () => {
-    try {
-      const logs = await getLogs();
-      const status = logs.reduce<{
-        root?: string;
-        tesseract?: string;
-        pdftoppm?: string;
-        tessdata?: string;
-      }>((acc, entry) => {
-        if (entry.source !== "RAG") return acc;
-        if (entry.message.includes("OCR resources")) {
-          acc.root = entry.message;
-        }
-        if (entry.message.includes("Tesseract")) {
-          acc.tesseract = entry.message;
-        }
-        if (entry.message.includes("pdftoppm")) {
-          acc.pdftoppm = entry.message;
-        }
-        if (entry.message.includes("tessdata")) {
-          acc.tessdata = entry.message;
-        }
-        return acc;
-      }, {});
-      setOcrStatus(Object.keys(status).length ? status : null);
-    } catch (err) {
-      console.error("Failed to load OCR status:", err);
-    }
-  };
-
   useEffect(() => {
     loadCollections();
-    loadOcrStatus();
   }, []);
 
-  const loadDocuments = useCallback(async () => {
-    if (selectedCollectionId === null) return;
-    try {
-      const data = await listRagDocuments(selectedCollectionId, 50);
-      setDocuments(data);
-    } catch (err) {
-      console.error("Failed to load documents:", err);
-    }
-  }, [selectedCollectionId]);
+  const loadDocuments = useCallback(
+    async (collectionId: number) => {
+      try {
+        const data = await listRagDocuments(collectionId, 50);
+        if (collectionId !== selectedCollectionId) return;
+        setDocuments(data);
+      } catch (err) {
+        console.error("Failed to load documents:", err);
+      }
+    },
+    [selectedCollectionId]
+  );
 
   useEffect(() => {
     if (selectedCollectionId === null) {
@@ -284,30 +332,127 @@ export default function RagTab() {
       return;
     }
 
-    void loadDocuments();
+    setDocuments([]);
+    void loadDocuments(selectedCollectionId);
   }, [loadDocuments, selectedCollectionId]);
 
+  /**
+   * File import with integrated RAG pipeline:
+   * 1. File validation (extension, size)
+   * 2. Content parsing (PDF/DOCX/XLSX/TXT)
+   * 3. Smart chunking (content-aware)
+   * 4. Local embedding generation (Fastembed)
+   * 5. Storage to encrypted SQLite
+   */
   const importFile = useCallback(
     async (filePath: string) => {
-      if (!isSupportedFile(filePath)) {
-        alert(
-          `Unsupported file type. Supported formats: ${SUPPORTED_EXTENSIONS.join(
-            ", "
-          ).toUpperCase()}`
-        );
+      if (!filePath || typeof filePath !== "string") {
+        alert("Invalid file path. Please choose a file again.");
         return;
       }
 
-      setIsImporting(true);
+      const fileName = filePath.split(/[/\\]/).pop() || filePath;
+
+      // Step 1: Validation
+      setImportProgress({
+        status: "validating",
+        message: getStatusMessage("validating", fileName),
+        fileName,
+      });
+
+      if (!isSupportedFile(filePath)) {
+        setImportProgress({
+          status: "error",
+          message: `Unsupported file type. Supported formats: ${SUPPORTED_EXTENSIONS.join(", ").toUpperCase()}`,
+          fileName,
+          error: "Unsupported file type",
+        });
+        return;
+      }
+
+      if (selectedCollectionId === null) {
+        setImportProgress({
+          status: "error",
+          message: "Please select a collection first",
+          fileName,
+          error: "No collection selected",
+        });
+        return;
+      }
+
+      // Step 2: Processing (parsing)
+      setImportProgress({
+        status: "processing",
+        message: getStatusMessage("processing", fileName),
+        fileName,
+      });
+
       try {
-        await importRagFile(filePath, selectedCollectionId ?? undefined);
-        await loadDocuments();
-        alert("File imported successfully!");
+        // The backend handles the full pipeline:
+        // - File parsing
+        // - Smart chunking
+        // - Embedding generation
+        // - Storage to SQLite
+
+        // Simulate progress updates for better UX
+        const progressTimer = setTimeout(() => {
+          setImportProgress({
+            status: "chunking",
+            message: getStatusMessage("chunking", fileName),
+            fileName,
+          });
+        }, 500);
+
+        const embeddingTimer = setTimeout(() => {
+          setImportProgress({
+            status: "embedding",
+            message: getStatusMessage("embedding", fileName),
+            fileName,
+          });
+        }, 1500);
+
+        console.info("RAG import requested", {
+          filePath,
+          collectionId: selectedCollectionId,
+        });
+
+        await importRagFile(filePath, selectedCollectionId);
+
+        clearTimeout(progressTimer);
+        clearTimeout(embeddingTimer);
+
+        console.info("RAG import completed", { filePath });
+
+        setImportProgress({
+          status: "complete",
+          message: getStatusMessage("complete", fileName),
+          fileName,
+        });
+
+        if (selectedCollectionId !== null) {
+          await loadDocuments(selectedCollectionId);
+        }
+
+        // Auto-clear success message after 5 seconds
+        setTimeout(() => {
+          setImportProgress((prev) =>
+            prev.status === "complete" ? { status: "idle", message: "" } : prev
+          );
+        }, 5000);
       } catch (err) {
+        const fallbackMessage =
+          err instanceof Error
+            ? err.message
+            : typeof err === "string"
+            ? err
+            : JSON.stringify(err);
         console.error("Failed to import file:", err);
-        alert("Failed to import file: " + (err as Error).message);
-      } finally {
-        setIsImporting(false);
+        setImportProgress({
+          status: "error",
+          message: getStatusMessage("error", fileName),
+          fileName,
+          error: fallbackMessage,
+        });
       }
     },
     [loadDocuments, selectedCollectionId]
@@ -502,23 +647,36 @@ export default function RagTab() {
           </div>
         </div>
 
-        <div className="px-6 pb-4">
-          {/* <div className="bg-app-card border border-app-border rounded-lg p-3 text-[10px] text-app-subtext">
-            <div className="flex items-center gap-2 text-xs font-medium text-app-text mb-1">
-              <Info className="w-3.5 h-3.5" /> OCR Status
-            </div>
-            {ocrStatus ? (
-              <div className="space-y-1">
-                {ocrStatus.root && <div>{ocrStatus.root}</div>}
-                {ocrStatus.tesseract && <div>{ocrStatus.tesseract}</div>}
-                {ocrStatus.pdftoppm && <div>{ocrStatus.pdftoppm}</div>}
-                {ocrStatus.tessdata && <div>{ocrStatus.tessdata}</div>}
+        {/* Import Status Feedback */}
+        {importProgress.status !== "idle" && (
+          <div
+            className={`mx-6 mt-4 p-4 rounded-lg border flex items-center gap-3 ${
+              importProgress.status === "complete"
+                ? "bg-green-500/10 border-green-500/30"
+                : importProgress.status === "error"
+                ? "bg-red-500/10 border-red-500/30"
+                : "bg-app-accent/10 border-app-accent/30"
+            }`}>
+            {getStatusIcon(importProgress.status)}
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-app-text">
+                {importProgress.message}
               </div>
-            ) : (
-              <div>OCR status not detected yet.</div>
+              {importProgress.error && (
+                <div className="text-xs text-red-500 mt-1">
+                  {importProgress.error}
+                </div>
+              )}
+            </div>
+            {(importProgress.status === "complete" || importProgress.status === "error") && (
+              <button
+                onClick={() => setImportProgress({ status: "idle", message: "" })}
+                className="p-1 text-app-text-muted hover:text-app-text transition-colors">
+                <X className="w-4 h-4" />
+              </button>
             )}
-          </div> */}
-        </div>
+          </div>
+        )}
 
         {showWebImport && (
           <div className="p-6 border-b border-app-border bg-app-card/30">
@@ -570,10 +728,43 @@ export default function RagTab() {
                 />
               </div>
             </div>
+            <div className="mt-4">
+              <label className="text-[10px] text-app-subtext block mb-2 uppercase tracking-wider">
+                Crawl Mode
+              </label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setWebCrawlMode("html")}
+                  className={`flex-1 px-4 py-2.5 rounded-lg text-sm border transition-all ${
+                    webCrawlMode === "html"
+                      ? "bg-app-accent text-white border-app-accent"
+                      : "bg-app-bg border-app-border text-app-text hover:border-app-accent/50"
+                  }`}>
+                  <div className="font-medium">HTML (Fast)</div>
+                  <div className="text-[10px] opacity-75 mt-0.5">
+                    Best for simple sites
+                  </div>
+                </button>
+                <button
+                  onClick={() => setWebCrawlMode("ocr")}
+                  className={`flex-1 px-4 py-2.5 rounded-lg text-sm border transition-all ${
+                    webCrawlMode === "ocr"
+                      ? "bg-app-accent text-white border-app-accent"
+                      : "bg-app-bg border-app-border text-app-text hover:border-app-accent/50"
+                  }`}>
+                  <div className="font-medium">OCR (Accurate)</div>
+                  <div className="text-[10px] opacity-75 mt-0.5">
+                    For JS-heavy sites
+                  </div>
+                </button>
+              </div>
+            </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs text-app-text-muted">
                 <Info className="w-3.5 h-3.5" />
-                Crawls only same-domain links to keep the import scoped.
+                {webCrawlMode === "html"
+                  ? "Crawls only same-domain links to keep the import scoped."
+                  : "Uses Playwright screenshots + Tesseract OCR. Requires Node.js."}
               </div>
               <button
                 onClick={handleWebImport}
@@ -586,7 +777,7 @@ export default function RagTab() {
                 ) : (
                   <ArrowRight className="w-4 h-4" />
                 )}
-                Start crawl
+                {webCrawlMode === "ocr" ? "Start OCR capture" : "Start crawl"}
               </button>
             </div>
           </div>
@@ -629,6 +820,9 @@ export default function RagTab() {
                     </h4>
                     <p className="text-sm text-app-text-muted mt-1">
                       Supported formats: PDF, DOCX, XLSX, TXT, WEB
+                    </p>
+                    <p className="text-xs text-app-text-muted mt-2">
+                      Files are automatically validated, chunked, and embedded locally
                     </p>
                   </div>
                   <button
