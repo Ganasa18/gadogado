@@ -1,5 +1,5 @@
 use crate::domain::error::{AppError, Result};
-use crate::domain::qa_event::{QaEvent, QaEventInput, QaEventPage};
+use crate::domain::qa_event::{QaEvent, QaEventInput, QaEventPage, QaEventSummary};
 use crate::infrastructure::db::qa_events::QaEventRepository;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -27,7 +27,25 @@ impl QaEventUseCase {
                 "Event type is required.".to_string(),
             ));
         }
-        if !matches!(event_type.as_str(), "click" | "input" | "submit" | "navigation") {
+        let is_supported = matches!(
+            event_type.as_str(),
+            "click"
+                | "input"
+                | "submit"
+                | "navigation"
+                | "change"
+                | "dblclick"
+                | "contextmenu"
+                | "keydown"
+                | "keyup"
+                | "focus"
+                | "blur"
+                | "scroll"
+                | "resize"
+        ) || event_type.starts_with("curl_")
+            || event_type.starts_with("api_");
+
+        if !is_supported {
             return Err(AppError::ValidationError(format!(
                 "Unsupported event type: {}",
                 event_type
@@ -37,14 +55,19 @@ impl QaEventUseCase {
         let event = QaEvent {
             id: Uuid::new_v4().to_string(),
             session_id: session_id.to_string(),
+            run_id: normalize_optional(input.run_id),
+            checkpoint_id: normalize_optional(input.checkpoint_id),
             seq: 0,
             ts: chrono::Utc::now().timestamp_millis(),
             event_type,
+            origin: normalize_optional(input.origin),
+            recording_mode: normalize_optional(input.recording_mode),
             selector: normalize_optional(input.selector),
             element_text: normalize_optional(input.element_text),
             value: normalize_value(input.value),
             url: normalize_optional(input.url),
             screenshot_id: None,
+            screenshot_path: None,
             meta_json: normalize_optional(input.meta_json),
         };
 
@@ -59,6 +82,16 @@ impl QaEventUseCase {
             ));
         }
         self.repository.list_events(session_id).await
+    }
+
+    pub async fn list_screenshots(&self, session_id: &str) -> Result<Vec<QaEvent>> {
+        let session_id = session_id.trim();
+        if session_id.is_empty() {
+            return Err(AppError::ValidationError(
+                "Session id is required.".to_string(),
+            ));
+        }
+        self.repository.list_screenshots(session_id).await
     }
 
     pub async fn list_events_page(
@@ -97,11 +130,7 @@ impl QaEventUseCase {
         })
     }
 
-    pub async fn delete_events(
-        &self,
-        session_id: &str,
-        event_ids: Vec<String>,
-    ) -> Result<u64> {
+    pub async fn delete_events(&self, session_id: &str, event_ids: Vec<String>) -> Result<u64> {
         let session_id = session_id.trim();
         if session_id.is_empty() {
             return Err(AppError::ValidationError(
@@ -119,6 +148,16 @@ impl QaEventUseCase {
         }
 
         self.repository.delete_events(session_id, &cleaned).await
+    }
+
+    pub async fn latest_event_summary(&self, session_id: &str) -> Result<Option<QaEventSummary>> {
+        let session_id = session_id.trim();
+        if session_id.is_empty() {
+            return Err(AppError::ValidationError(
+                "Session id is required.".to_string(),
+            ));
+        }
+        self.repository.latest_event_summary(session_id).await
     }
 
     pub async fn attach_screenshot(

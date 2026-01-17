@@ -4,6 +4,11 @@
 
 The QA automation system now supports two recording modes with configurable delay for more structured test case creation:
 
+## Scope
+
+- Recording modes apply to browser sessions only
+- API sessions use request capture and replay without auto/manual toggles
+
 1. **Auto Mode** - Continuous recording of all interactions
 2. **Manual Mode** - Step-by-step recording with explicit control
 

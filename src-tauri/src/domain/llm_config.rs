@@ -24,8 +24,8 @@ impl Default for LLMConfig {
     fn default() -> Self {
         Self {
             provider: LLMProvider::Local,
-            base_url: "http://localhost:1234/v1".to_string(),
-            model: "local-model".to_string(),
+            base_url: "http://localhost:11434".to_string(),
+            model: "nomic-embed-text".to_string(),
             api_key: None,
             max_tokens: Some(1024),
             temperature: Some(0.7),

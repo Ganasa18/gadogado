@@ -1,8 +1,8 @@
-import { JSX } from "react";
+import type { InputHTMLAttributes } from "react";
 import { cn } from "../../utils/cn";
 
 interface SwitchProps
-  extends Omit<JSX.HTMLAttributes<HTMLInputElement>, "onChange"> {
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "checked"> {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;

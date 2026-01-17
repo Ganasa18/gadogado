@@ -14,9 +14,10 @@
       {
         "title": "gadogado",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "dragDropEnabled": true
       },
-       {
+      {
         "label": "loading",
         "title": "gadogado Loading",
         "width": 360,
@@ -33,7 +34,14 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/**",
+          "$APPDATA/qa_sessions/**/*"
+        ]
+      }
     }
   },
   "bundle": {
@@ -45,6 +53,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/ocr/**/*"
     ]
+  },
+  "plugins": {
+    "dialog": null
   }
 }

@@ -1,28 +1,28 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown, Search } from "lucide-react";
 
-interface Option {
-  value: string;
+interface Option<T extends string = string> {
+  value: T;
   label: string;
 }
 
-interface SelectProps {
-  options: Option[];
-  value: string;
-  onChange: (value: string) => void;
+interface SelectProps<T extends string = string> {
+  options: Option<T>[];
+  value: T;
+  onChange: (value: T) => void;
   placeholder?: string;
   className?: string;
   searchable?: boolean;
 }
 
-export function Select({
+export function Select<T extends string = string>({
   options,
   value,
   onChange,
   placeholder = "Select...",
   className = "",
   searchable = true,
-}: SelectProps) {
+}: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);

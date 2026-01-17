@@ -277,7 +277,7 @@ async fn qa_proxy(data: web::Data<HttpState>, query: web::Query<ProxyQuery>) -> 
 
 fn inject_recorder_script(html: &str, base_url: &str) -> String {
     // Parse base URL to extract origin for proper script/resource loading
-    let origin = if let Ok(url) = url::Url::parse(base_url) {
+    let _origin = if let Ok(url) = url::Url::parse(base_url) {
         format!("{}://{}", url.scheme(), url.host_str().unwrap_or(""))
     } else {
         "http://localhost:1420".to_string()
@@ -635,19 +635,30 @@ fn inject_recorder_script(html: &str, base_url: &str) -> String {
     }
 }
 
-pub fn add_log(logs: &Arc<Mutex<Vec<LogEntry>>>, level: &str, source: &str, message: &str) {
-    let mut logs = logs.lock().unwrap();
-    logs.push(LogEntry {
+pub fn add_log_entry(
+    logs: &Mutex<Vec<LogEntry>>,
+    level: &str,
+    source: &str,
+    message: &str,
+) -> LogEntry {
+    let entry = LogEntry {
         time: Local::now().format("%H:%M:%S").to_string(),
         level: level.to_string(),
         source: source.to_string(),
         message: message.to_string(),
-    });
-    // Keep only last 100 logs
+    };
+    let mut logs = logs.lock().unwrap();
+    logs.push(entry.clone());
     if logs.len() > 100 {
         logs.remove(0);
     }
+    entry
 }
+
+pub fn add_log(logs: &Mutex<Vec<LogEntry>>, level: &str, source: &str, message: &str) {
+    add_log_entry(logs, level, source, message);
+}
+
 
 pub fn start_server(
     tauri_state: Arc<AppState>,

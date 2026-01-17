@@ -1,11 +1,7 @@
-import { JSX } from "react";
+import type { InputHTMLAttributes } from "react";
 import { cn } from "../../utils/cn";
 
-interface InputProps extends JSX.HTMLAttributes<HTMLInputElement> {
-  placeholder?: string;
-  value?: string;
-  type?: string;
-}
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
 
 export function Input({ className, ...props }: InputProps) {
   return (

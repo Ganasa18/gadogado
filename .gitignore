@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 *.vscode*
+opencode.json
+src-tauri/.fastembed_cache*
+temp_insert.py
+src-tauri/resources/ocr
+.claude/settings.local.json

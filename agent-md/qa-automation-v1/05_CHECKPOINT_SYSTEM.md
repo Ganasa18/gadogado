@@ -7,9 +7,11 @@ Prevent LLM context overflow by splitting sessions.
 ## Checkpoint Triggers
 
 - Manual (QA action)
-- Form submit
-- Navigation change
+- Form submit (only after post-submit result observed)
+- Navigation change (only after post-submit result observed, if applicable)
+- Post-submit result observed (DOM change, success message, or API response)
 - Idle > 10–15 seconds
+
 
 ## Table
 
@@ -24,5 +26,6 @@ checkpoints:
 
 ## Acceptance Criteria
 
-- Checkpoints are created correctly
+- Checkpoints are created only after post-submit results are observed
 - Events are associated with checkpoints
+
