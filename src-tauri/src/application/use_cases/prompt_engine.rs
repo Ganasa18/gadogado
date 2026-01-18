@@ -81,10 +81,7 @@ Do not include any explanation, just the JSON array."#,
     }
 
     /// Rerank results based on LLM scores
-    pub fn apply_reranking_scores(
-        results: &mut [QueryResult],
-        scores: &[f32],
-    ) {
+    pub fn apply_reranking_scores(results: &mut [QueryResult], scores: &[f32]) {
         if results.len() != scores.len() {
             return;
         }
@@ -147,7 +144,7 @@ Do not include any explanation, just the JSON array."#,
 
         Ok(prompt)
     }
-    
+
     fn get_system_rules() -> String {
         r#"You are a helpful AI assistant that answers questions based on the provided context.
 
@@ -160,9 +157,10 @@ IMPORTANT RULES:
    - For Excel data: [Source: excel_data_456]
 5. If the context doesn't contain enough information to answer the question, say so clearly
 6. Be concise and direct in your answers
-7. If multiple sources provide information, cite all relevant sources"#.to_string()
+7. If multiple sources provide information, cite all relevant sources"#
+            .to_string()
     }
-    
+
     fn build_context(results: &[QueryResult]) -> String {
         if results.is_empty() {
             return "No relevant context found in the collection.".to_string();
@@ -171,10 +169,7 @@ IMPORTANT RULES:
         let mut context = String::from("Context:\n");
 
         for (idx, result) in results.iter().enumerate() {
-            context.push_str(&format!(
-                "\n--- Source {} ---\n",
-                idx + 1
-            ));
+            context.push_str(&format!("\n--- Source {} ---\n", idx + 1));
 
             // Include document name if available
             if let Some(ref doc_name) = result.doc_name {
@@ -183,8 +178,7 @@ IMPORTANT RULES:
 
             context.push_str(&format!(
                 "Type: {}\nID: {}\n",
-                result.source_type,
-                result.source_id
+                result.source_type, result.source_id
             ));
 
             // Include page number if available
@@ -207,11 +201,7 @@ IMPORTANT RULES:
     // ============================================================
 
     /// Build a verification prompt to check if an answer is grounded in the context
-    pub fn build_verification_prompt(
-        query: &str,
-        answer: &str,
-        results: &[QueryResult],
-    ) -> String {
+    pub fn build_verification_prompt(query: &str, answer: &str, results: &[QueryResult]) -> String {
         let context = Self::build_context(results);
 
         format!(
@@ -295,7 +285,11 @@ Provide your corrected answer:"#,
             query,
             original_answer,
             if issues.is_empty() { "None" } else { &issues },
-            if unsupported.is_empty() { "None" } else { &unsupported }
+            if unsupported.is_empty() {
+                "None"
+            } else {
+                &unsupported
+            }
         )
     }
 
@@ -381,17 +375,15 @@ mod tests {
 
     #[test]
     fn test_build_prompt_with_results() {
-        let results = vec![
-            QueryResult {
-                content: "X is a variable".to_string(),
-                source_type: "text_chunk".to_string(),
-                source_id: 1,
-                score: Some(0.95),
-                page_number: Some(3),
-                page_offset: Some(150),
-                doc_name: Some("test.pdf".to_string()),
-            }
-        ];
+        let results = vec![QueryResult {
+            content: "X is a variable".to_string(),
+            source_type: "text_chunk".to_string(),
+            source_id: 1,
+            score: Some(0.95),
+            page_number: Some(3),
+            page_offset: Some(150),
+            doc_name: Some("test.pdf".to_string()),
+        }];
 
         let prompt = PromptEngine::build_prompt("What is X?", &results).unwrap();
         assert!(prompt.contains("X is a variable"));

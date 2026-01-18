@@ -55,7 +55,12 @@ impl RetrievalCache {
     }
 
     /// Get results from cache if valid
-    pub fn get(&mut self, collection_id: i64, query: &str, top_k: usize) -> Option<Vec<QueryResult>> {
+    pub fn get(
+        &mut self,
+        collection_id: i64,
+        query: &str,
+        top_k: usize,
+    ) -> Option<Vec<QueryResult>> {
         let key = Self::make_key(collection_id, query, top_k);
 
         let result = if let Some(entry) = self.cache.get(&key) {
@@ -84,7 +89,13 @@ impl RetrievalCache {
     }
 
     /// Store results in cache
-    pub fn put(&mut self, collection_id: i64, query: &str, top_k: usize, results: Vec<QueryResult>) {
+    pub fn put(
+        &mut self,
+        collection_id: i64,
+        query: &str,
+        top_k: usize,
+        results: Vec<QueryResult>,
+    ) {
         let key = Self::make_key(collection_id, query, top_k);
 
         // Evict oldest entries if at capacity
@@ -341,7 +352,10 @@ impl RetrievalService {
 
     /// Invalidate cache for a specific collection (call after document updates)
     pub fn invalidate_collection_cache(&self, collection_id: i64) {
-        self.cache.lock().unwrap().invalidate_collection(collection_id);
+        self.cache
+            .lock()
+            .unwrap()
+            .invalidate_collection(collection_id);
     }
 
     /// Clean up expired cache entries
@@ -364,25 +378,49 @@ impl RetrievalService {
         // Common technical synonyms mapping
         let synonyms: &[(&[&str], &[&str])] = &[
             // Programming terms
-            (&["function", "func", "fn"], &["method", "procedure", "routine"]),
+            (
+                &["function", "func", "fn"],
+                &["method", "procedure", "routine"],
+            ),
             (&["variable", "var"], &["parameter", "argument", "field"]),
             (&["class"], &["type", "struct", "object"]),
-            (&["error", "exception"], &["bug", "issue", "problem", "failure"]),
-            (&["create", "make"], &["generate", "build", "construct", "initialize"]),
-            (&["delete", "remove"], &["destroy", "drop", "clear", "erase"]),
+            (
+                &["error", "exception"],
+                &["bug", "issue", "problem", "failure"],
+            ),
+            (
+                &["create", "make"],
+                &["generate", "build", "construct", "initialize"],
+            ),
+            (
+                &["delete", "remove"],
+                &["destroy", "drop", "clear", "erase"],
+            ),
             (&["update", "modify"], &["change", "edit", "alter", "patch"]),
-            (&["get", "fetch", "retrieve"], &["obtain", "load", "read", "query"]),
+            (
+                &["get", "fetch", "retrieve"],
+                &["obtain", "load", "read", "query"],
+            ),
             (&["send", "post"], &["submit", "transmit", "push"]),
             (&["array", "list"], &["collection", "vector", "sequence"]),
-            (&["config", "configuration"], &["settings", "options", "preferences"]),
+            (
+                &["config", "configuration"],
+                &["settings", "options", "preferences"],
+            ),
             (&["api"], &["endpoint", "interface", "service"]),
             (&["database", "db"], &["storage", "datastore", "repository"]),
-            (&["authentication", "auth"], &["login", "signin", "authorization"]),
+            (
+                &["authentication", "auth"],
+                &["login", "signin", "authorization"],
+            ),
             (&["user"], &["account", "member", "client"]),
             // Document terms
             (&["page"], &["section", "chapter", "part"]),
             (&["summary"], &["overview", "abstract", "synopsis"]),
-            (&["detail", "details"], &["information", "specifics", "particulars"]),
+            (
+                &["detail", "details"],
+                &["information", "specifics", "particulars"],
+            ),
         ];
 
         // Apply synonym expansion
@@ -402,25 +440,27 @@ impl RetrievalService {
 
         // Extract key terms (remove stop words)
         let stop_words: HashSet<&str> = [
-            "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did", "will", "would", "could",
-            "should", "may", "might", "must", "shall", "can", "need", "dare",
-            "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
-            "from", "as", "into", "through", "during", "before", "after", "above",
-            "below", "between", "under", "again", "further", "then", "once", "here",
-            "there", "when", "where", "why", "how", "all", "each", "few", "more",
-            "most", "other", "some", "such", "no", "nor", "not", "only", "own",
-            "same", "so", "than", "too", "very", "just", "and", "but", "if", "or",
-            "because", "until", "while", "about", "against", "this", "that", "these",
-            "those", "what", "which", "who", "whom", "whose", "i", "me", "my", "we",
-            "our", "you", "your", "he", "him", "his", "she", "her", "it", "its",
-            "they", "them", "their",
-        ].iter().cloned().collect();
+            "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has",
+            "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
+            "shall", "can", "need", "dare", "ought", "used", "to", "of", "in", "for", "on", "with",
+            "at", "by", "from", "as", "into", "through", "during", "before", "after", "above",
+            "below", "between", "under", "again", "further", "then", "once", "here", "there",
+            "when", "where", "why", "how", "all", "each", "few", "more", "most", "other", "some",
+            "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "just",
+            "and", "but", "if", "or", "because", "until", "while", "about", "against", "this",
+            "that", "these", "those", "what", "which", "who", "whom", "whose", "i", "me", "my",
+            "we", "our", "you", "your", "he", "him", "his", "she", "her", "it", "its", "they",
+            "them", "their",
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         let key_terms: Vec<&str> = lowercase_query
             .split_whitespace()
             .filter(|word| {
-                word.len() > 2 && !stop_words.contains(word.trim_matches(|c: char| !c.is_alphanumeric()))
+                word.len() > 2
+                    && !stop_words.contains(word.trim_matches(|c: char| !c.is_alphanumeric()))
             })
             .collect();
 
@@ -442,8 +482,8 @@ impl RetrievalService {
     /// Combine expanded query results using Reciprocal Rank Fusion (RRF)
     fn reciprocal_rank_fusion(
         &self,
-        result_sets: Vec<Vec<(i64, f32)>>,  // Vec of (chunk_id, score) tuples
-        k: f32,  // RRF constant (typically 60)
+        result_sets: Vec<Vec<(i64, f32)>>, // Vec of (chunk_id, score) tuples
+        k: f32,                            // RRF constant (typically 60)
     ) -> Vec<(i64, f32)> {
         use std::collections::HashMap;
 
@@ -759,10 +799,8 @@ impl RetrievalService {
         let has_embeddings = chunks.iter().any(|chunk| chunk.embedding.is_some());
 
         // Build chunk map for lookups
-        let chunk_map: HashMap<i64, &ChunkWithMetadata> = chunks
-            .iter()
-            .map(|c| (c.id, c))
-            .collect();
+        let chunk_map: HashMap<i64, &ChunkWithMetadata> =
+            chunks.iter().map(|c| (c.id, c)).collect();
 
         // Collect all result sets for RRF fusion
         let mut all_result_sets: Vec<Vec<(i64, f32)>> = Vec::new();
@@ -783,8 +821,11 @@ impl RetrievalService {
                     .generate_embedding(expanded_query)
                     .await
                 {
-                    let search_results = self.vector_search
-                        .search_with_metadata(&query_embedding, &chunks, top_k * 2);
+                    let search_results = self.vector_search.search_with_metadata(
+                        &query_embedding,
+                        &chunks,
+                        top_k * 2,
+                    );
 
                     let result_set: Vec<(i64, f32)> = search_results
                         .iter()
@@ -844,7 +885,12 @@ impl RetrievalService {
     }
 
     /// Perform BM25 keyword search on chunks
-    fn bm25_search(&self, chunks: &[ChunkWithMetadata], query: &str, top_k: usize) -> Vec<(i64, f32)> {
+    fn bm25_search(
+        &self,
+        chunks: &[ChunkWithMetadata],
+        query: &str,
+        top_k: usize,
+    ) -> Vec<(i64, f32)> {
         // Build BM25 scorer from all document contents
         let documents: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
         let scorer = Bm25Scorer::from_documents(&documents);

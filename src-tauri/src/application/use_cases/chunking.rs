@@ -130,12 +130,7 @@ impl ChunkEngine {
             if !current_chunk.is_empty()
                 && current_chunk.len() + block.content.len() > self.config.max_chunk_size
             {
-                chunks.push(self.create_chunk_from_content(
-                    &current_chunk,
-                    None,
-                    0,
-                    current_type,
-                ));
+                chunks.push(self.create_chunk_from_content(&current_chunk, None, 0, current_type));
 
                 // Keep overlap from previous chunk
                 let overlap_start = current_chunk.len().saturating_sub(self.config.overlap);
@@ -173,12 +168,7 @@ impl ChunkEngine {
 
         // Flush remaining content
         if !current_chunk.is_empty() && current_chunk.len() >= self.config.min_chunk_size {
-            chunks.push(self.create_chunk_from_content(
-                &current_chunk,
-                None,
-                0,
-                current_type,
-            ));
+            chunks.push(self.create_chunk_from_content(&current_chunk, None, 0, current_type));
         } else if !current_chunk.is_empty() && !chunks.is_empty() {
             // Append small remaining content to last chunk
             if let Some(last) = chunks.last_mut() {
@@ -189,12 +179,7 @@ impl ChunkEngine {
             }
         } else if !current_chunk.is_empty() {
             // Only chunk, even if small
-            chunks.push(self.create_chunk_from_content(
-                &current_chunk,
-                None,
-                0,
-                current_type,
-            ));
+            chunks.push(self.create_chunk_from_content(&current_chunk, None, 0, current_type));
         }
 
         Ok(chunks)
@@ -203,7 +188,8 @@ impl ChunkEngine {
     /// Semantic chunking based on paragraph boundaries
     fn chunk_text_semantic(&self, text: &str) -> Result<Vec<Chunk>> {
         // Split by double newlines (paragraphs)
-        let paragraphs: Vec<&str> = text.split("\n\n")
+        let paragraphs: Vec<&str> = text
+            .split("\n\n")
             .map(|p| p.trim())
             .filter(|p| !p.is_empty())
             .collect();
@@ -318,7 +304,12 @@ impl ChunkEngine {
         if trimmed.starts_with('#') {
             return ContentBlockType::Header;
         }
-        if trimmed.len() < 100 && trimmed.chars().all(|c| c.is_uppercase() || c.is_whitespace() || c.is_ascii_punctuation()) && trimmed.len() > 3 {
+        if trimmed.len() < 100
+            && trimmed
+                .chars()
+                .all(|c| c.is_uppercase() || c.is_whitespace() || c.is_ascii_punctuation())
+            && trimmed.len() > 3
+        {
             return ContentBlockType::Header;
         }
 
@@ -326,7 +317,11 @@ impl ChunkEngine {
         if trimmed.starts_with('-') || trimmed.starts_with('*') || trimmed.starts_with('•') {
             return ContentBlockType::List;
         }
-        if trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+        if trimmed
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
             && trimmed.contains('.')
             && trimmed.len() > 2
         {
@@ -393,15 +388,15 @@ impl ChunkEngine {
         }
 
         // Penalize chunks that are mostly punctuation/symbols
-        let alpha_ratio = text.chars().filter(|c| c.is_alphabetic()).count() as f32
-            / text.len().max(1) as f32;
+        let alpha_ratio =
+            text.chars().filter(|c| c.is_alphabetic()).count() as f32 / text.len().max(1) as f32;
         if alpha_ratio < 0.5 {
             score *= 0.7;
         }
 
         // Penalize chunks that are mostly numbers
-        let digit_ratio = text.chars().filter(|c| c.is_ascii_digit()).count() as f32
-            / text.len().max(1) as f32;
+        let digit_ratio =
+            text.chars().filter(|c| c.is_ascii_digit()).count() as f32 / text.len().max(1) as f32;
         if digit_ratio > 0.5 {
             score *= 0.8;
         }
@@ -412,7 +407,12 @@ impl ChunkEngine {
         }
 
         // Reward chunks with proper capitalization
-        if text.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        if text
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
             score *= 1.05;
         }
 
@@ -506,7 +506,12 @@ impl ChunkEngine {
         (current_page, page_offset)
     }
 
-    fn split_with_overlap(&self, text: &str, page_number: Option<i64>, base_offset: i64) -> Vec<Chunk> {
+    fn split_with_overlap(
+        &self,
+        text: &str,
+        page_number: Option<i64>,
+        base_offset: i64,
+    ) -> Vec<Chunk> {
         let mut chunks = Vec::new();
         let chars: Vec<char> = text.chars().collect();
         let mut start = 0;

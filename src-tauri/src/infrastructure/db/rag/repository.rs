@@ -127,7 +127,7 @@ impl RagRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to fetch document: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch document: {}", e)))?;
 
         match document {
             Some(document) => Ok(document.into()),
@@ -135,7 +135,11 @@ impl RagRepository {
         }
     }
 
-    pub async fn list_documents(&self, collection_id: Option<i64>, limit: i64) -> Result<Vec<RagDocument>> {
+    pub async fn list_documents(
+        &self,
+        collection_id: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<RagDocument>> {
         if let Some(collection_id) = collection_id {
             let documents = sqlx::query_as::<_, RagDocumentEntity>(
                 "SELECT id, collection_id, file_name, file_path, file_type, language, total_pages,
@@ -186,12 +190,17 @@ impl RagRepository {
             .bind(chunk_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to update chunk embedding: {}", e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to update chunk embedding: {}", e))
+            })?;
 
         Ok(())
     }
 
-    pub async fn get_chunks_with_embeddings(&self, doc_id: i64) -> Result<Vec<(i64, String, Option<i64>, Option<i64>, Option<Vec<f32>>)>> {
+    pub async fn get_chunks_with_embeddings(
+        &self,
+        doc_id: i64,
+    ) -> Result<Vec<(i64, String, Option<i64>, Option<i64>, Option<Vec<f32>>)>> {
         let chunks = sqlx::query_as::<_, RagDocumentChunkEntity>(
             "SELECT id, doc_id, content, page_number, page_offset, chunk_index, token_count,
                     chunk_quality, content_type, embedding_api
@@ -200,13 +209,21 @@ impl RagRepository {
         .bind(doc_id)
         .fetch_all(&self.pool)
         .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to fetch chunks with embeddings: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to fetch chunks with embeddings: {}", e))
+        })?;
 
         let mut results = Vec::new();
         for chunk in chunks {
             let embedding = chunk.embedding_api
                 .and_then(|bytes| crate::application::use_cases::embedding_service::EmbeddingService::bytes_to_embedding(&bytes).ok());
-            results.push((chunk.id, chunk.content, chunk.page_number, chunk.page_offset, embedding));
+            results.push((
+                chunk.id,
+                chunk.content,
+                chunk.page_number,
+                chunk.page_offset,
+                embedding,
+            ));
         }
 
         Ok(results)
@@ -222,7 +239,7 @@ impl RagRepository {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to fetch chunks: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch chunks: {}", e)))?;
 
         Ok(chunks.into_iter().map(|c| c.into()).collect())
     }
@@ -240,7 +257,7 @@ impl RagRepository {
         .bind(input.val_c)
         .fetch_one(&self.pool)
         .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to create excel data: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create excel data: {}", e)))?;
 
         Ok(result.into())
     }
@@ -278,7 +295,9 @@ impl RagRepository {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to search chunks by collection: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to search chunks by collection: {}", e))
+        })?;
 
         let mut results = Vec::new();
         for chunk in chunks {
@@ -314,7 +333,9 @@ impl RagRepository {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to search excel by collection: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to search excel by collection: {}", e))
+        })?;
 
         Ok(data.into_iter().map(|d| d.into()).collect())
     }
@@ -347,7 +368,10 @@ impl RagRepository {
             params.push(val.to_string());
         }
 
-        query.push_str(&format!(" ORDER BY ed.row_index ASC LIMIT ?{}", param_count + 1));
+        query.push_str(&format!(
+            " ORDER BY ed.row_index ASC LIMIT ?{}",
+            param_count + 1
+        ));
 
         let mut query_builder = sqlx::query_as::<_, RagExcelDataEntity>(&query);
         query_builder = query_builder.bind(collection_id);
@@ -358,10 +382,9 @@ impl RagRepository {
 
         query_builder = query_builder.bind(limit);
 
-        let data = query_builder
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to search excel with filter: {}", e)))?;
+        let data = query_builder.fetch_all(&self.pool).await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to search excel with filter: {}", e))
+        })?;
 
         Ok(data.into_iter().map(|d| d.into()).collect())
     }
@@ -449,7 +472,9 @@ impl RagRepository {
             .bind(chunk_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to update chunk quality: {}", e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to update chunk quality: {}", e))
+            })?;
 
         Ok(())
     }
@@ -526,7 +551,9 @@ impl RagRepository {
         .bind(collection_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to compute collection stats: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to compute collection stats: {}", e))
+        })?;
 
         // Compute average chunk quality
         let avg_chunk_quality = sqlx::query_scalar::<_, Option<f64>>(
@@ -555,7 +582,9 @@ impl RagRepository {
         .bind(avg_chunk_quality)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to store collection metrics: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to store collection metrics: {}", e))
+        })?;
 
         Ok(result.into())
     }
@@ -622,16 +651,18 @@ impl RagRepository {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to get low quality documents: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to get low quality documents: {}", e))
+        })?;
 
         Ok(documents.into_iter().map(|d| d.into()).collect())
     }
 }
 
 fn db_path_to_url(db_path: &Path) -> Result<String> {
-    let db_path_str = db_path
-        .to_str()
-        .ok_or_else(|| AppError::DatabaseError("RAG database path is not valid UTF-8".to_string()))?;
+    let db_path_str = db_path.to_str().ok_or_else(|| {
+        AppError::DatabaseError("RAG database path is not valid UTF-8".to_string())
+    })?;
     Ok(format!("sqlite://{}", db_path_str.replace("\\", "/")))
 }
 

@@ -32,28 +32,28 @@ impl WebCrawler {
             max_depth,
         }
     }
-    
+
     pub fn with_config(max_pages: usize, max_depth: usize, timeout_secs: u64) -> Result<Self> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_secs))
             .user_agent("Mozilla/5.0 (compatible; LocalSenseRAG/1.0)")
             .build()
             .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
-        
+
         Ok(Self {
             client,
             max_pages,
             max_depth,
         })
     }
-    
+
     pub async fn crawl_site(
         &self,
         start_url: &str,
         logs: Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
     ) -> Result<Vec<CrawledPage>> {
         use crate::interfaces::http::add_log;
-        
+
         let base_url = self.extract_base_url(start_url)?;
         let mut visited = HashSet::new();
         let mut results = Vec::new();
@@ -120,15 +120,20 @@ impl WebCrawler {
                         &logs,
                         "INFO",
                         "WebCrawler",
-                        &format!("Crawled: {} ({} chars, {} links)", url, page.content.len(), page.links.len()),
+                        &format!(
+                            "Crawled: {} ({} chars, {} links)",
+                            url,
+                            page.content.len(),
+                            page.links.len()
+                        ),
                     );
-                    
+
                     for link in &page.links {
                         if !visited.contains(link) && queue.len() < self.max_pages * 2 {
                             queue.push((link.clone(), depth + 1));
                         }
                     }
-                    
+
                     results.push(page);
                 }
                 Err(e) => {
@@ -141,17 +146,17 @@ impl WebCrawler {
                 }
             }
         }
-        
+
         add_log(
             &logs,
             "INFO",
             "WebCrawler",
             &format!("Crawl complete: {} pages visited", results.len()),
         );
-        
+
         Ok(results)
     }
-    
+
     async fn fetch_robots_rules(
         &self,
         base_url: &str,
@@ -171,7 +176,11 @@ impl WebCrawler {
                 &logs,
                 "WARN",
                 "WebCrawler",
-                &format!("Failed to fetch robots.txt ({}): {}", robots_url, response.status()),
+                &format!(
+                    "Failed to fetch robots.txt ({}): {}",
+                    robots_url,
+                    response.status()
+                ),
             );
             return None;
         }
@@ -216,12 +225,7 @@ impl WebCrawler {
         rules
     }
 
-    fn is_disallowed_by_robots(
-        &self,
-        url: &str,
-        base_url: &str,
-        rules: &RobotsRules,
-    ) -> bool {
+    fn is_disallowed_by_robots(&self, url: &str, base_url: &str, rules: &RobotsRules) -> bool {
         let Ok(parsed) = url::Url::parse(url) else {
             return false;
         };
@@ -247,7 +251,7 @@ impl WebCrawler {
             .send()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to fetch URL: {}", e)))?;
-        
+
         if !response.status().is_success() {
             return Err(AppError::Internal(format!(
                 "HTTP error {}: {}",
@@ -255,20 +259,20 @@ impl WebCrawler {
                 url
             )));
         }
-        
+
         let html = response
             .text()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to read response body: {}", e)))?;
-        
+
         let document = Html::parse_document(&html);
-        
+
         let title = document
             .select(&Selector::parse("title").unwrap())
             .next()
             .map(|el| el.text().collect::<Vec<_>>().join(" "))
             .unwrap_or_else(|| url.to_string());
-        
+
         let body_text = document
             .select(&Selector::parse("body").unwrap())
             .next()
@@ -281,15 +285,15 @@ impl WebCrawler {
                     .join(" ")
             })
             .unwrap_or_else(String::new);
-        
+
         let links = self.extract_links(&document, base_url, url)?;
-        
+
         let content = if title != url {
             format!("{}\n\n{}", title, body_text)
         } else {
             body_text
         };
-        
+
         Ok(CrawledPage {
             url: url.to_string(),
             title,
@@ -297,11 +301,16 @@ impl WebCrawler {
             links,
         })
     }
-    
-    fn extract_links(&self, document: &Html, base_url: &str, current_url: &str) -> Result<Vec<String>> {
+
+    fn extract_links(
+        &self,
+        document: &Html,
+        base_url: &str,
+        current_url: &str,
+    ) -> Result<Vec<String>> {
         let mut links = Vec::new();
         let anchor_selector = Selector::parse("a[href]").unwrap();
-        
+
         for element in document.select(&anchor_selector) {
             if let Some(href) = element.value().attr("href") {
                 if let Some(normalized) = self.normalize_link(href, base_url, current_url)? {
@@ -311,17 +320,22 @@ impl WebCrawler {
                 }
             }
         }
-        
+
         Ok(links)
     }
-    
-    fn normalize_link(&self, href: &str, base_url: &str, current_url: &str) -> Result<Option<String>> {
+
+    fn normalize_link(
+        &self,
+        href: &str,
+        base_url: &str,
+        current_url: &str,
+    ) -> Result<Option<String>> {
         let href = href.trim();
-        
+
         if href.is_empty() || href.starts_with('#') || href.starts_with("javascript:") {
             return Ok(None);
         }
-        
+
         if href.starts_with("http://") || href.starts_with("https://") {
             if href.starts_with(base_url) {
                 Ok(Some(href.to_string()))
@@ -339,23 +353,23 @@ impl WebCrawler {
             Ok(Some(format!("{}/{}", current_base, href)))
         }
     }
-    
+
     fn extract_base_url(&self, url: &str) -> Result<String> {
-        let url_parsed = url::Url::parse(url)
-            .map_err(|e| AppError::Internal(format!("Invalid URL: {}", e)))?;
-        
+        let url_parsed =
+            url::Url::parse(url).map_err(|e| AppError::Internal(format!("Invalid URL: {}", e)))?;
+
         let base = format!(
             "{}://{}",
             url_parsed.scheme(),
             url_parsed.host_str().unwrap_or("")
         );
-        
+
         Ok(base)
     }
-    
+
     pub fn clean_html(html: &str) -> Result<String> {
         let document = Html::parse_document(html);
-        
+
         let body_text = document
             .select(&Selector::parse("body").unwrap())
             .next()
@@ -381,7 +395,7 @@ impl WebCrawler {
                     .collect::<Vec<_>>()
                     .join("\n")
             });
-        
+
         Ok(body_text)
     }
 }
@@ -445,7 +459,9 @@ impl WebOcrCapture {
         // Create unique output directory for this capture
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let url_hash = Self::hash_url(url);
-        let output_dir = self.temp_dir.join(format!("web_ocr_{}_{}", timestamp, url_hash));
+        let output_dir = self
+            .temp_dir
+            .join(format!("web_ocr_{}_{}", timestamp, url_hash));
 
         add_log(
             &logs,
@@ -517,10 +533,7 @@ impl WebOcrCapture {
             &logs,
             "INFO",
             "WebOcrCapture",
-            &format!(
-                "Captured {} tiles, starting OCR...",
-                manifest.tiles.len()
-            ),
+            &format!("Captured {} tiles, starting OCR...", manifest.tiles.len()),
         );
 
         // Get tile paths and run OCR
@@ -531,10 +544,7 @@ impl WebOcrCapture {
             &logs,
             "INFO",
             "WebOcrCapture",
-            &format!(
-                "OCR complete: {} characters extracted",
-                content.len()
-            ),
+            &format!("OCR complete: {} characters extracted", content.len()),
         );
 
         // Save output markdown
@@ -543,9 +553,8 @@ impl WebOcrCapture {
             "# {}\n\nSource: {}\n\n---\n\n{}",
             manifest.title, manifest.url, content
         );
-        std::fs::write(&markdown_path, &markdown_content).map_err(|e| {
-            AppError::Internal(format!("Failed to write markdown output: {}", e))
-        })?;
+        std::fs::write(&markdown_path, &markdown_content)
+            .map_err(|e| AppError::Internal(format!("Failed to write markdown output: {}", e)))?;
 
         Ok(OcrCrawlResult {
             url: manifest.url.clone(),
@@ -566,8 +575,8 @@ impl WebOcrCapture {
         use std::process::Command;
 
         let mut combined_text = String::new();
-        let tesseract_cmd = std::env::var("TESSERACT_CMD")
-            .unwrap_or_else(|_| "tesseract".to_string());
+        let tesseract_cmd =
+            std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
         let tessdata_prefix = std::env::var("TESSDATA_PREFIX").ok();
 
         add_log(
@@ -671,7 +680,7 @@ impl WebOcrCapture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_clean_html() {
         let html = r#"<html><head><title>Test</title></head><body><h1>Hello</h1><p>World</p></body></html>"#;
@@ -679,18 +688,32 @@ mod tests {
         assert!(cleaned.contains("Hello"));
         assert!(cleaned.contains("World"));
     }
-    
+
     #[test]
     fn test_normalize_link() {
         let crawler = WebCrawler::new(10, 2);
-        
-        let result = crawler.normalize_link("/page", "https://example.com", "https://example.com/index").unwrap();
+
+        let result = crawler
+            .normalize_link("/page", "https://example.com", "https://example.com/index")
+            .unwrap();
         assert_eq!(result, Some("https://example.com/page".to_string()));
-        
-        let result = crawler.normalize_link("https://example.com/other", "https://example.com", "https://example.com/index").unwrap();
+
+        let result = crawler
+            .normalize_link(
+                "https://example.com/other",
+                "https://example.com",
+                "https://example.com/index",
+            )
+            .unwrap();
         assert_eq!(result, Some("https://example.com/other".to_string()));
-        
-        let result = crawler.normalize_link("https://other.com/page", "https://example.com", "https://example.com/index").unwrap();
+
+        let result = crawler
+            .normalize_link(
+                "https://other.com/page",
+                "https://example.com",
+                "https://example.com/index",
+            )
+            .unwrap();
         assert_eq!(result, None);
     }
 }

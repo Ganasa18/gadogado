@@ -195,9 +195,8 @@ impl PlaywrightCapture {
         }
 
         // Ensure output directory exists
-        std::fs::create_dir_all(output_dir).map_err(|e| {
-            AppError::Internal(format!("Failed to create output directory: {}", e))
-        })?;
+        std::fs::create_dir_all(output_dir)
+            .map_err(|e| AppError::Internal(format!("Failed to create output directory: {}", e)))?;
 
         // Run the capture script
         let output = Command::new("node")
@@ -243,9 +242,8 @@ impl PlaywrightCapture {
                 AppError::Internal("No result JSON found in playwright output".to_string())
             })?;
 
-        let manifest: CaptureManifest = serde_json::from_str(result_json).map_err(|e| {
-            AppError::Internal(format!("Failed to parse capture manifest: {}", e))
-        })?;
+        let manifest: CaptureManifest = serde_json::from_str(result_json)
+            .map_err(|e| AppError::Internal(format!("Failed to parse capture manifest: {}", e)))?;
 
         Ok(manifest)
     }

@@ -1,9 +1,8 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-static THINK_TAG_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<think>[\s\S]*?</think>|<think\s*/>").unwrap()
-});
+static THINK_TAG_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<think>[\s\S]*?</think>|<think\s*/>").unwrap());
 
 static RESULT_PLACEHOLDER_PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\{\{result\}\}").unwrap());
@@ -29,9 +28,7 @@ pub fn clean_llm_response(response: &str) -> String {
         .to_string();
 
     // Remove <reasoning>...</reasoning> tags (some models use this)
-    cleaned = REASONING_TAG_PATTERN
-        .replace_all(&cleaned, "")
-        .to_string();
+    cleaned = REASONING_TAG_PATTERN.replace_all(&cleaned, "").to_string();
 
     // Remove <internal>...</internal> tags
     cleaned = INTERNAL_TAG_PATTERN.replace_all(&cleaned, "").to_string();

@@ -418,7 +418,9 @@ impl EmbeddingService {
             .json(&request)
             .send()
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to call embedding API ({}): {}", url, e)))?;
+            .map_err(|e| {
+                AppError::Internal(format!("Failed to call embedding API ({}): {}", url, e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();

@@ -20,85 +20,113 @@ use crate::infrastructure::db::qa_sessions::QaRepository;
 use crate::infrastructure::db::rag::connection::init_rag_db;
 use crate::infrastructure::db::rag::repository::RagRepository;
 use crate::infrastructure::db::sqlite::SqliteRepository;
+use crate::infrastructure::db::training::connection::init_training_db;
 use crate::infrastructure::llm_clients::LLMClient;
 use crate::infrastructure::llm_clients::RouterClient;
+use crate::infrastructure::artifact_store::{ensure_daily_backup, BackupConfig, TrainingArtifactLayout};
 use crate::infrastructure::storage::{
     ensure_qa_sessions_root, ensure_session_dir, resolve_app_data_dir,
 };
 use crate::interfaces::mock_server::MockServerState;
-use crate::interfaces::tauri::{
-    AppState,
-    get_logs,
-    sync_config,
-    sync_embedding_config,
-    sync_languages,
-    sync_shortcuts,
-    translate_prompt,
-    enhance_prompt,
-    get_translation_history,
-    save_api_key,
-    get_api_key,
-    delete_api_key,
-    get_llm_models,
-    mock_server_get_config,
-    mock_server_start,
-    mock_server_status,
-    mock_server_stop,
-    mock_server_update_config,
-    qa_start_session,
-    qa_end_session,
-    qa_start_run,
-    qa_end_run,
-    qa_start_browser_recorder,
-    qa_stop_browser_recorder,
-    qa_append_run_stream_event,
-    qa_list_run_stream_events,
-    qa_list_sessions,
-    qa_get_session,
-    qa_execute_api_request,
-    qa_replay_browser,
-    qa_record_event,
-    qa_open_devtools,
-    qa_list_events,
-    qa_list_screenshots,
-    qa_capture_screenshot,
-    qa_list_events_page,
-    qa_delete_events,
-    qa_delete_session,
-    qa_create_checkpoint,
-    qa_list_checkpoints,
-    qa_generate_checkpoint_summary,
-    qa_generate_test_cases,
-    qa_list_checkpoint_summaries,
-    qa_list_test_cases,
-    qa_list_llm_runs,
-    qa_capture_native_screenshot,
-    qa_explore_session,
-};
 use crate::interfaces::tauri::rag_commands::{
-    rag_analyze_document_quality, rag_assign_experiment_variant, rag_build_correction_prompt,
-    rag_build_verification_prompt, rag_chat_with_context, rag_clear_cache, rag_clear_feedback,
-    rag_clear_metrics, rag_clear_retrieval_cache, rag_create_collection, rag_deactivate_experiment,
-    rag_delete_chunk, rag_delete_collection, rag_delete_document, rag_enhanced_ocr,
-    rag_filter_low_quality_chunks, rag_get_chunks_with_quality, rag_get_collection,
-    rag_get_config, rag_get_document, rag_get_document_quality_summary, rag_get_feedback_stats,
-    rag_get_metrics, rag_get_recent_feedback, rag_get_retrieval_cache_stats,
-    rag_get_system_stats, rag_health_check, rag_hybrid_retrieval, rag_hybrid_search,
-    rag_import_file, rag_import_web, rag_invalidate_collection_cache, rag_list_chunks,
-    rag_list_collections, rag_list_documents, rag_list_excel_data, rag_list_experiments,
-    rag_query, rag_record_document_quality, rag_record_metric, rag_reembed_chunk,
-    rag_register_experiment, rag_reset_config, rag_run_validation_suite, rag_smart_chunking,
-    rag_submit_feedback, rag_update_cache_config, rag_update_chat_config, rag_update_chunk_content,
-    rag_update_chunking_config, rag_update_config, rag_update_embedding_config,
-    rag_update_ocr_config, rag_update_retrieval_config, rag_validate_config,
-    rag_clear_analytics, rag_get_analytics_summary, rag_get_recent_analytics,
+    rag_add_conversation_message,
+    rag_analyze_document_quality,
+    rag_assign_experiment_variant,
+    rag_build_correction_prompt,
+    rag_build_verification_prompt,
+    rag_chat_with_context,
+    rag_clear_analytics,
+    rag_clear_cache,
+    rag_clear_feedback,
+    rag_clear_metrics,
+    rag_clear_retrieval_cache,
+    rag_compute_collection_quality,
+    rag_create_collection,
     // Conversation persistence
-    rag_create_conversation, rag_add_conversation_message, rag_get_conversation_messages,
-    rag_list_conversations, rag_delete_conversation,
+    rag_create_conversation,
+    rag_create_document_warning,
+    rag_deactivate_experiment,
+    rag_delete_chunk,
+    rag_delete_collection,
+    rag_delete_conversation,
+    rag_delete_document,
+    rag_enhanced_ocr,
+    rag_filter_low_quality_chunks,
+    rag_get_analytics_summary,
+    rag_get_chunks_with_quality,
+    rag_get_collection,
     // Quality analytics
-    rag_get_collection_quality, rag_compute_collection_quality, rag_get_document_warnings,
-    rag_create_document_warning, rag_get_low_quality_documents, rag_record_retrieval_gap,
+    rag_get_collection_quality,
+    rag_get_config,
+    rag_get_conversation_messages,
+    rag_get_document,
+    rag_get_document_quality_summary,
+    rag_get_document_warnings,
+    rag_get_feedback_stats,
+    rag_get_low_quality_documents,
+    rag_get_metrics,
+    rag_get_recent_analytics,
+    rag_get_recent_feedback,
+    rag_get_retrieval_cache_stats,
     rag_get_retrieval_gaps,
+    rag_get_system_stats,
+    rag_health_check,
+    rag_hybrid_retrieval,
+    rag_hybrid_search,
+    rag_import_file,
+    rag_import_web,
+    rag_invalidate_collection_cache,
+    rag_list_chunks,
+    rag_list_collections,
+    rag_list_conversations,
+    rag_list_documents,
+    rag_list_excel_data,
+    rag_list_experiments,
+    rag_query,
+    rag_record_document_quality,
+    rag_record_metric,
+    rag_record_retrieval_gap,
+    rag_reembed_chunk,
+    rag_register_experiment,
+    rag_reset_config,
+    rag_run_validation_suite,
+    rag_smart_chunking,
+    rag_submit_feedback,
+    rag_update_cache_config,
+    rag_update_chat_config,
+    rag_update_chunk_content,
+    rag_update_chunking_config,
+    rag_update_config,
+    rag_update_embedding_config,
+    rag_update_ocr_config,
+    rag_update_retrieval_config,
+    rag_validate_config,
+};
+use crate::interfaces::tauri::distillation_commands::{
+    distill_add_dataset_item, distill_cleanup_old_backups, distill_create_backup,
+    distill_create_dataset, distill_create_model_version, distill_create_training_run,
+    distill_delete_correction, distill_delete_dataset, distill_get_active_version,
+    distill_get_artifact_layout, distill_get_correction, distill_get_dataset,
+    distill_get_model, distill_get_model_version, distill_get_training_run,
+    distill_list_backups, distill_list_corrections, distill_list_dataset_items,
+    distill_list_datasets, distill_list_models, distill_list_run_artifacts, distill_list_tags,
+    distill_list_training_runs, distill_list_version_metrics, distill_log_training_step,
+    distill_promote_version, distill_record_artifact, distill_record_metric,
+    distill_register_model, distill_restore_backup, distill_save_correction,
+    distill_start_python_training, distill_update_correction_tags, distill_update_run_status,
+};
+use crate::interfaces::tauri::{
+    delete_api_key, enhance_prompt, get_api_key, get_llm_models, get_logs, get_translation_history,
+    mock_server_get_config, mock_server_start, mock_server_status, mock_server_stop,
+    mock_server_update_config, qa_append_run_stream_event, qa_capture_native_screenshot,
+    qa_capture_screenshot, qa_create_checkpoint, qa_delete_events, qa_delete_session, qa_end_run,
+    qa_end_session, qa_execute_api_request, qa_explore_session, qa_generate_checkpoint_summary,
+    qa_generate_test_cases, qa_get_session, qa_list_checkpoint_summaries, qa_list_checkpoints,
+    qa_list_events, qa_list_events_page, qa_list_llm_runs, qa_list_run_stream_events,
+    qa_list_screenshots, qa_list_sessions, qa_list_test_cases, qa_open_devtools, qa_record_event,
+    qa_replay_browser, qa_start_browser_recorder, qa_start_run, qa_start_session,
+    qa_stop_browser_recorder, save_api_key, sync_config, sync_embedding_config, sync_languages,
+    sync_shortcuts, translate_prompt, AppState,
 };
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -145,9 +173,7 @@ pub fn run() {
             };
 
             let resource_dir = app_handle.path().resource_dir().ok();
-            let mut ocr_root = resource_dir
-                .as_ref()
-                .map(|dir| dir.join("ocr"));
+            let mut ocr_root = resource_dir.as_ref().map(|dir| dir.join("ocr"));
 
             if ocr_root.as_ref().map(|dir| dir.exists()).unwrap_or(false) == false {
                 ocr_root = Some(
@@ -197,7 +223,11 @@ pub fn run() {
                         ""
                     };
                     if !env_key.is_empty() {
-                        let separator = if std::env::consts::OS == "windows" { ";" } else { ":" };
+                        let separator = if std::env::consts::OS == "windows" {
+                            ";"
+                        } else {
+                            ":"
+                        };
                         let new_value = match std::env::var(env_key) {
                             Ok(existing) if !existing.is_empty() => {
                                 format!("{}{}{}", lib_dir.display(), separator, existing)
@@ -254,6 +284,32 @@ pub fn run() {
             let rag_db_path = app_data_dir.join("rag_sense.db");
             println!("Initializing RAG database at: {}", rag_db_path.display());
 
+            let training_db_path = app_data_dir.join("training.db");
+            println!(
+                "Initializing Training database at: {}",
+                training_db_path.display()
+            );
+
+            let training_artifacts = TrainingArtifactLayout::new(&app_data_dir);
+            if let Err(err) = training_artifacts.ensure() {
+                crate::interfaces::http::add_log(
+                    &logs_for_init,
+                    "ERROR",
+                    "Training",
+                    &format!("Failed to ensure training artifact dirs: {err}"),
+                );
+            } else {
+                crate::interfaces::http::add_log(
+                    &logs_for_init,
+                    "INFO",
+                    "Training",
+                    &format!(
+                        "Training artifacts root ready: {}",
+                        training_artifacts.root().display()
+                    ),
+                );
+            }
+
             let db_path = app_data_dir.join("promptbridge.db");
             let db_path_str = db_path.to_string_lossy().replace("\\", "/");
             let db_url = format!("sqlite://{}", db_path_str);
@@ -282,20 +338,24 @@ pub fn run() {
                             rag_db_path.display(),
                             meta.len()
                         );
-                    },
+                    }
                     Err(err) => {
                         crate::interfaces::http::add_log(
                             &logs_for_init,
                             "ERROR",
                             "RAG",
-                            &format!("RAG database file missing after init: {} ({})", rag_db_path.display(), err),
+                            &format!(
+                                "RAG database file missing after init: {} ({})",
+                                rag_db_path.display(),
+                                err
+                            ),
                         );
                         println!(
                             "RAG database file missing after init: {} ({})",
                             rag_db_path.display(),
                             err
                         );
-                    },
+                    }
                 }
                 println!("RAG database ready, proceeding to QA database init");
 
@@ -303,6 +363,14 @@ pub fn run() {
                     .await
                     .expect("Failed to initialize QA database");
                 println!("Initialized QA database at: {}", qa_db_path.display());
+
+                init_training_db(&training_db_path)
+                    .await
+                    .expect("Failed to initialize Training database");
+                println!(
+                    "Initialized Training database at: {}",
+                    training_db_path.display()
+                );
                 match std::fs::metadata(&qa_db_path) {
                     Ok(meta) => println!(
                         "QA database file created: {} ({} bytes)",
@@ -315,7 +383,96 @@ pub fn run() {
                         err
                     ),
                 }
-                println!("QA database ready, proceeding to app database init");
+
+                match std::fs::metadata(&training_db_path) {
+                    Ok(meta) => {
+                        crate::interfaces::http::add_log(
+                            &logs_for_init,
+                            "INFO",
+                            "Training",
+                            &format!(
+                                "Training database file created: {} ({} bytes)",
+                                training_db_path.display(),
+                                meta.len()
+                            ),
+                        );
+                        println!(
+                            "Training database file created: {} ({} bytes)",
+                            training_db_path.display(),
+                            meta.len()
+                        );
+                    }
+                    Err(err) => {
+                        crate::interfaces::http::add_log(
+                            &logs_for_init,
+                            "ERROR",
+                            "Training",
+                            &format!(
+                                "Training database file missing after init: {} ({})",
+                                training_db_path.display(),
+                                err
+                            ),
+                        );
+                        println!(
+                            "Training database file missing after init: {} ({})",
+                            training_db_path.display(),
+                            err
+                        );
+                    }
+                }
+
+                // Best-effort daily backup + retention cleanup (async, non-blocking).
+                let logs_for_backup = logs_for_init.clone();
+                let training_db_for_backup = training_db_path.clone();
+                let app_data_dir_for_backup = app_data_dir.clone();
+                tauri::async_runtime::spawn(async move {
+                    let joined = tokio::task::spawn_blocking(move || {
+                        let cfg = BackupConfig::new(&app_data_dir_for_backup);
+                        ensure_daily_backup(&training_db_for_backup, &cfg)
+                    })
+                    .await;
+
+                    match joined {
+                        Ok(Ok(Some(result))) => {
+                            crate::interfaces::http::add_log(
+                                &logs_for_backup,
+                                "INFO",
+                                "Training",
+                                &format!(
+                                    "Daily training DB backup created: {} ({} bytes)",
+                                    result.backup_path.display(),
+                                    result.size_bytes
+                                ),
+                            );
+                        }
+                        Ok(Ok(None)) => {
+                            crate::interfaces::http::add_log(
+                                &logs_for_backup,
+                                "INFO",
+                                "Training",
+                                "Daily training DB backup already exists",
+                            );
+                        }
+                        Ok(Err(err)) => {
+                            crate::interfaces::http::add_log(
+                                &logs_for_backup,
+                                "ERROR",
+                                "Training",
+                                &format!("Failed to create daily training DB backup: {err}"),
+                            );
+                        }
+                        Err(err) => {
+                            crate::interfaces::http::add_log(
+                                &logs_for_backup,
+                                "ERROR",
+                                "Training",
+                                &format!("Daily backup worker failed: {err}"),
+                            );
+                        }
+                    }
+                });
+
+                println!("Training database ready, proceeding to app database init");
                 let qa_repo = QaRepository::connect(&qa_db_path)
                     .await
                     .expect("Failed to connect QA database");
@@ -409,18 +566,25 @@ pub fn run() {
                 ));
 
                 // Initialize metrics collector and experiment manager
-                let metrics_collector = crate::application::use_cases::rag_metrics::SharedMetricsCollector::new();
-                let experiment_manager = crate::application::use_cases::rag_metrics::SharedExperimentManager::new();
+                let metrics_collector =
+                    crate::application::use_cases::rag_metrics::SharedMetricsCollector::new();
+                let experiment_manager =
+                    crate::application::use_cases::rag_metrics::SharedExperimentManager::new();
 
                 // Initialize config manager and feedback collector
                 let config_dir = app_data_dir.clone();
-                let config_manager = crate::application::use_cases::rag_config::SharedConfigManager::new(config_dir);
-                let feedback_collector = crate::application::use_cases::rag_config::SharedFeedbackCollector::new(1000);
-                let analytics_logger = crate::application::use_cases::rag_analytics::SharedAnalyticsLogger::new(2000);
+                let config_manager =
+                    crate::application::use_cases::rag_config::SharedConfigManager::new(config_dir);
+                let feedback_collector =
+                    crate::application::use_cases::rag_config::SharedFeedbackCollector::new(1000);
+                let analytics_logger =
+                    crate::application::use_cases::rag_analytics::SharedAnalyticsLogger::new(2000);
 
                 // Initialize conversation service for chat persistence
                 let conversation_service = std::sync::Arc::new(
-                    crate::application::use_cases::conversation_service::ConversationService::new(rag_repo_arc.clone())
+                    crate::application::use_cases::conversation_service::ConversationService::new(
+                        rag_repo_arc.clone(),
+                    ),
                 );
 
                 let state = AppState {
@@ -607,7 +771,42 @@ pub fn run() {
             rag_create_document_warning,
             rag_get_low_quality_documents,
             rag_record_retrieval_gap,
-            rag_get_retrieval_gaps
+            rag_get_retrieval_gaps,
+            // Model Distillation commands
+            distill_save_correction,
+            distill_get_correction,
+            distill_list_corrections,
+            distill_delete_correction,
+            distill_update_correction_tags,
+            distill_list_tags,
+            distill_create_dataset,
+            distill_get_dataset,
+            distill_list_datasets,
+            distill_delete_dataset,
+            distill_add_dataset_item,
+            distill_list_dataset_items,
+            distill_register_model,
+            distill_list_models,
+            distill_get_model,
+            distill_create_training_run,
+            distill_update_run_status,
+            distill_get_training_run,
+            distill_list_training_runs,
+            distill_log_training_step,
+            distill_create_model_version,
+            distill_get_model_version,
+            distill_promote_version,
+            distill_get_active_version,
+            distill_record_metric,
+            distill_list_version_metrics,
+            distill_record_artifact,
+            distill_list_run_artifacts,
+            distill_create_backup,
+            distill_list_backups,
+            distill_restore_backup,
+             distill_cleanup_old_backups,
+             distill_get_artifact_layout,
+             distill_start_python_training
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

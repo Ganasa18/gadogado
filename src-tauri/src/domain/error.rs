@@ -9,6 +9,7 @@ pub enum AppError {
     LLMError(String),
     SecurityError(String),
     DatabaseError(String),
+    IoError(String),
 }
 
 impl fmt::Display for AppError {
@@ -20,7 +21,14 @@ impl fmt::Display for AppError {
             AppError::LLMError(msg) => write!(f, "LLM error: {}", msg),
             AppError::SecurityError(msg) => write!(f, "Security error: {}", msg),
             AppError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
+            AppError::IoError(msg) => write!(f, "IO error: {}", msg),
         }
+    }
+}
+
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        AppError::IoError(err.to_string())
     }
 }
 

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RagCollection {
@@ -18,10 +18,10 @@ pub struct RagDocument {
     pub file_type: String,
     pub language: String,
     pub total_pages: i64,
-    pub quality_score: Option<f64>,      // Overall document quality (0.0-1.0)
-    pub ocr_confidence: Option<f64>,     // Average OCR confidence (0.0-1.0)
-    pub chunk_count: i64,                // Total number of chunks
-    pub warning_count: i64,              // Number of quality warnings
+    pub quality_score: Option<f64>, // Overall document quality (0.0-1.0)
+    pub ocr_confidence: Option<f64>, // Average OCR confidence (0.0-1.0)
+    pub chunk_count: i64,           // Total number of chunks
+    pub warning_count: i64,         // Number of quality warnings
     pub created_at: DateTime<Utc>,
 }
 
@@ -34,8 +34,8 @@ pub struct RagDocumentChunk {
     pub page_offset: Option<i64>,
     pub chunk_index: i64,
     pub token_count: Option<i64>,
-    pub chunk_quality: Option<f64>,      // Chunk quality score (0.0-1.0)
-    pub content_type: Option<String>,    // Detected content type
+    pub chunk_quality: Option<f64>,   // Chunk quality score (0.0-1.0)
+    pub content_type: Option<String>, // Detected content type
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -93,12 +93,12 @@ pub struct RagExcelDataInput {
 pub struct DocumentWarning {
     pub id: i64,
     pub doc_id: i64,
-    pub warning_type: String,            // ocr_low_confidence, table_structure_lost, short_chunk, etc.
+    pub warning_type: String, // ocr_low_confidence, table_structure_lost, short_chunk, etc.
     pub page_number: Option<i64>,
     pub chunk_index: Option<i64>,
-    pub severity: String,                // info, warning, error
-    pub message: String,                 // Human-readable message
-    pub suggestion: Option<String>,      // Actionable suggestion
+    pub severity: String,           // info, warning, error
+    pub message: String,            // Human-readable message
+    pub suggestion: Option<String>, // Actionable suggestion
     pub created_at: DateTime<Utc>,
 }
 
@@ -137,7 +137,7 @@ pub struct RetrievalGap {
     pub result_count: Option<i64>,
     pub max_confidence: Option<f64>,
     pub avg_confidence: Option<f64>,
-    pub gap_type: Option<String>,        // no_results, low_confidence, partial_match
+    pub gap_type: Option<String>, // no_results, low_confidence, partial_match
     pub created_at: DateTime<Utc>,
 }
 

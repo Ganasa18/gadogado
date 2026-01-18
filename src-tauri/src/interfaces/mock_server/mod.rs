@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::time::{sleep, timeout};
 use std::time::Duration;
+use tokio::time::{sleep, timeout};
 
 use crate::domain::error::{AppError, Result};
 use crate::interfaces::http::{add_log, LogEntry};
@@ -159,33 +159,48 @@ pub fn load_config_from_path(path: &PathBuf) -> Result<MockServerConfig> {
 
 pub fn save_config(state: &MockServerState) -> Result<()> {
     let config = state.config.lock().unwrap();
-    let serialized = serde_json::to_string_pretty(&*config)
-        .map_err(|err| AppError::Internal(format!("Failed to serialize mock server config: {}", err)))?;
+    let serialized = serde_json::to_string_pretty(&*config).map_err(|err| {
+        AppError::Internal(format!("Failed to serialize mock server config: {}", err))
+    })?;
     fs::write(&state.config_path, serialized)
         .map_err(|err| AppError::Internal(format!("Failed to save mock server config: {}", err)))?;
     add_log(
         &state.logs,
         "INFO",
         "MockServer",
-        &format!("Mock server config saved at {}", state.config_path.display()),
+        &format!(
+            "Mock server config saved at {}",
+            state.config_path.display()
+        ),
     );
     Ok(())
 }
 
 pub async fn start_mock_server(state: Arc<MockServerState>) -> Result<()> {
     let port = { state.config.lock().unwrap().port };
-    let mut server_guard = state.server.lock().unwrap();
-    if server_guard.is_some() {
-        add_log(
-            &state.logs,
-            "INFO",
-            "MockServer",
-            "Mock server start requested but already running",
-        );
-        return Err(AppError::ValidationError(
-            "Mock server is already running.".to_string(),
-        ));
-    }
+
+    // Check if already running (quick lock check)
+    {
+        let server_guard = state.server.lock().unwrap();
+        if server_guard.is_some() {
+            add_log(
+                &state.logs,
+                "INFO",
+                "MockServer",
+                "Mock server start requested but already running",
+            );
+            return Err(AppError::ValidationError(
+                "Mock server is already running.".to_string(),
+            ));
+        }
+    } // Release lock before creating server
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "MockServer",
+        &format!("Starting mock server on port {}...", port),
+    );
 
     let server_state = state.clone();
     let server = HttpServer::new(move || {
@@ -194,11 +209,25 @@ pub async fn start_mock_server(state: Arc<MockServerState>) -> Result<()> {
             .default_service(web::route().to(handle_mock_request))
     })
     .bind(("127.0.0.1", port))
-    .map_err(|err| AppError::Internal(format!("Failed to bind mock server: {}", err)))?
+    .map_err(|err| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "MockServer",
+            &format!("Failed to bind mock server on port {}: {}", port, err),
+        );
+        AppError::Internal(format!("Failed to bind mock server: {}", err))
+    })?
     .run();
 
     let handle = server.handle();
-    *server_guard = Some(handle);
+
+    // Store the handle
+    {
+        let mut server_guard = state.server.lock().unwrap();
+        *server_guard = Some(handle);
+    }
+
     tokio::spawn(server);
 
     add_log(
@@ -212,6 +241,7 @@ pub async fn start_mock_server(state: Arc<MockServerState>) -> Result<()> {
 }
 
 pub async fn stop_mock_server(state: Arc<MockServerState>) -> Result<()> {
+    add_log(&state.logs, "INFO", "MockServer", "Stopping mock server...");
     let handle = { state.server.lock().unwrap().take() };
     if let Some(handle) = handle {
         let graceful = timeout(Duration::from_secs(2), handle.stop(true)).await;
@@ -228,7 +258,7 @@ pub async fn stop_mock_server(state: Arc<MockServerState>) -> Result<()> {
                 &state.logs,
                 "INFO",
                 "MockServer",
-                "Mock server stopped",
+                "Mock server stopped gracefully",
             );
         }
     } else {
@@ -442,7 +472,9 @@ fn match_body(rule: &MockBodyMatch, body_text: &str) -> bool {
     match rule.mode {
         MatchMode::Exact => body_text.trim() == rule_value,
         MatchMode::Contains => body_text.contains(rule_value),
-        MatchMode::Regex => Regex::new(rule_value).map(|re| re.is_match(body_text)).unwrap_or(false),
+        MatchMode::Regex => Regex::new(rule_value)
+            .map(|re| re.is_match(body_text))
+            .unwrap_or(false),
     }
 }
 

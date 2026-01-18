@@ -77,14 +77,13 @@ impl QaRepository {
     }
 
     pub async fn end_session(&self, session_id: &str, ended_at: i64) -> Result<QaSession> {
-        let result = sqlx::query(
-            "UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
-        )
-        .bind(ended_at)
-        .bind(session_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to end QA session: {e}")))?;
+        let result =
+            sqlx::query("UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL")
+                .bind(ended_at)
+                .bind(session_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to end QA session: {e}")))?;
 
         if result.rows_affected() == 0 {
             match self.get_session(session_id).await {
@@ -116,11 +115,10 @@ impl QaRepository {
     }
 
     pub async fn delete_session_cascade(&self, session_id: &str) -> Result<u64> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to start QA delete txn: {e}")))?;
+        let mut tx =
+            self.pool.begin().await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to start QA delete txn: {e}"))
+            })?;
 
         sqlx::query(
             "DELETE FROM checkpoint_summaries WHERE checkpoint_id IN (
@@ -130,13 +128,15 @@ impl QaRepository {
         .bind(session_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete checkpoint summaries: {e}")))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to delete checkpoint summaries: {e}"))
+        })?;
 
         sqlx::query("DELETE FROM test_cases WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete test cases: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete test cases: {e}")))?;
 
         sqlx::query(
             "DELETE FROM llm_runs WHERE scope_id IN (
@@ -149,34 +149,36 @@ impl QaRepository {
         .map_err(|e| AppError::DatabaseError(format!("Failed to delete LLM runs: {e}")))?;
 
         sqlx::query("DELETE FROM artifacts WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete artifacts: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete artifacts: {e}")))?;
 
         sqlx::query("DELETE FROM api_calls WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete api calls: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete api calls: {e}")))?;
 
         sqlx::query("DELETE FROM ai_actions WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete ai actions: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete ai actions: {e}")))?;
 
         sqlx::query("DELETE FROM test_case_runs WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete test case runs: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to delete test case runs: {e}"))
+            })?;
 
         sqlx::query("DELETE FROM replay_runs WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete replay runs: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete replay runs: {e}")))?;
 
         sqlx::query(
             "DELETE FROM run_stream_events WHERE run_id IN (
@@ -189,28 +191,28 @@ impl QaRepository {
         .map_err(|e| AppError::DatabaseError(format!("Failed to delete run stream events: {e}")))?;
 
         sqlx::query("DELETE FROM session_runs WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete session runs: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete session runs: {e}")))?;
 
         sqlx::query("DELETE FROM events WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete events: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete events: {e}")))?;
 
         sqlx::query("DELETE FROM checkpoints WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete checkpoints: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete checkpoints: {e}")))?;
 
         let result = sqlx::query("DELETE FROM sessions WHERE id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to delete session: {e}")))?;
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete session: {e}")))?;
 
         tx.commit()
             .await

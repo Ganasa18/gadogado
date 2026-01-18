@@ -255,7 +255,10 @@ impl RagConfig {
             errors.push("Overlap must be less than chunk size".to_string());
         }
         if !["fixed_size", "content_aware", "semantic"].contains(&self.chunking.strategy.as_str()) {
-            errors.push(format!("Invalid chunking strategy: {}", self.chunking.strategy));
+            errors.push(format!(
+                "Invalid chunking strategy: {}",
+                self.chunking.strategy
+            ));
         }
 
         // Validate retrieval config
@@ -270,7 +273,10 @@ impl RagConfig {
         }
         let weight_sum = self.retrieval.vector_weight + self.retrieval.keyword_weight;
         if (weight_sum - 1.0).abs() > 0.01 {
-            warnings.push(format!("Retrieval weights sum to {:.2} instead of 1.0", weight_sum));
+            warnings.push(format!(
+                "Retrieval weights sum to {:.2} instead of 1.0",
+                weight_sum
+            ));
         }
 
         // Validate embedding config
@@ -288,8 +294,13 @@ impl RagConfig {
         if !["tesseract", "paddle", "auto"].contains(&self.ocr.engine.as_str()) {
             errors.push(format!("Invalid OCR engine: {}", self.ocr.engine));
         }
-        if !["auto", "grayscale", "otsu", "contrast"].contains(&self.ocr.preprocessing_mode.as_str()) {
-            errors.push(format!("Invalid preprocessing mode: {}", self.ocr.preprocessing_mode));
+        if !["auto", "grayscale", "otsu", "contrast"]
+            .contains(&self.ocr.preprocessing_mode.as_str())
+        {
+            errors.push(format!(
+                "Invalid preprocessing mode: {}",
+                self.ocr.preprocessing_mode
+            ));
         }
 
         // Validate cache config
@@ -299,7 +310,8 @@ impl RagConfig {
 
         // Validate chat config
         if self.chat.max_history_length == 0 {
-            warnings.push("Max history length is 0, no conversation context will be used".to_string());
+            warnings
+                .push("Max history length is 0, no conversation context will be used".to_string());
         }
 
         ConfigValidation {
@@ -568,8 +580,16 @@ impl FeedbackCollector {
 
     pub fn get_feedback_stats(&self) -> FeedbackStats {
         let total = self.feedback.len();
-        let positive = self.feedback.iter().filter(|f| f.rating == FeedbackRating::ThumbsUp).count();
-        let negative = self.feedback.iter().filter(|f| f.rating == FeedbackRating::ThumbsDown).count();
+        let positive = self
+            .feedback
+            .iter()
+            .filter(|f| f.rating == FeedbackRating::ThumbsUp)
+            .count();
+        let negative = self
+            .feedback
+            .iter()
+            .filter(|f| f.rating == FeedbackRating::ThumbsDown)
+            .count();
         let neutral = total - positive - negative;
 
         FeedbackStats {
@@ -577,7 +597,11 @@ impl FeedbackCollector {
             positive_count: positive,
             negative_count: negative,
             neutral_count: neutral,
-            positive_rate: if total > 0 { positive as f32 / total as f32 } else { 0.0 },
+            positive_rate: if total > 0 {
+                positive as f32 / total as f32
+            } else {
+                0.0
+            },
         }
     }
 
@@ -617,7 +641,8 @@ impl SharedFeedbackCollector {
 
     pub fn get_recent_feedback(&self, limit: usize) -> Vec<UserFeedback> {
         let collector = self.inner.lock().unwrap();
-        collector.feedback
+        collector
+            .feedback
             .iter()
             .rev()
             .take(limit)
