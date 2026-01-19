@@ -32,14 +32,14 @@ impl RouterClient {
 impl LLMClient for RouterClient {
     async fn generate(&self, config: &LLMConfig, system: &str, user: &str) -> Result<String> {
         match config.provider {
-            LLMProvider::Google => self.gemini.generate(config, system, user).await,
+            LLMProvider::Gemini => self.gemini.generate(config, system, user).await,
             _ => self.openai.generate(config, system, user).await,
         }
     }
 
     async fn list_models(&self, config: &LLMConfig) -> Result<Vec<String>> {
         match config.provider {
-            LLMProvider::Google => self.gemini.list_models(config).await,
+            LLMProvider::Gemini => self.gemini.list_models(config).await,
             _ => self.openai.list_models(config).await,
         }
     }

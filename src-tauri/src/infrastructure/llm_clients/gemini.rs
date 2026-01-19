@@ -9,6 +9,13 @@ struct GeminiRequest {
     contents: Vec<GeminiContent>,
     #[serde(rename = "generationConfig", skip_serializing_if = "Option::is_none")]
     generation_config: Option<GenerationConfig>,
+    #[serde(rename = "systemInstruction", skip_serializing_if = "Option::is_none")]
+    system_instruction: Option<SystemInstruction>,
+}
+
+#[derive(Serialize)]
+struct SystemInstruction {
+    parts: Vec<GeminiPart>,
 }
 
 #[derive(Serialize)]
@@ -98,20 +105,28 @@ impl LLMClient for GeminiClient {
         let base_url = config.base_url.trim_end_matches('/');
         let url = format!("{}/{}:generateContent?key={}", base_url, model_id, api_key);
 
-        let mut parts = Vec::new();
-        if !system.trim().is_empty() {
-            parts.push(GeminiPart {
-                text: system.to_string(),
-            });
-        }
-        if !user.trim().is_empty() {
-            parts.push(GeminiPart {
+        // Build system instruction if provided
+        let system_instruction = if !system.trim().is_empty() {
+            Some(SystemInstruction {
+                parts: vec![GeminiPart {
+                    text: system.to_string(),
+                }],
+            })
+        } else {
+            None
+        };
+
+        // User content goes in contents array
+        let contents = vec![GeminiContent {
+            parts: vec![GeminiPart {
                 text: user.to_string(),
-            });
-        }
+            }],
+            role: None,
+        }];
 
         let body = GeminiRequest {
-            contents: vec![GeminiContent { parts, role: None }],
+            contents,
+            system_instruction,
             generation_config: Some(GenerationConfig {
                 temperature: config.temperature.unwrap_or(0.7) as f64,
                 top_p: None,

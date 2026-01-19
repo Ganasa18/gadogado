@@ -28,7 +28,7 @@ impl Default for ChunkConfig {
     fn default() -> Self {
         Self {
             max_chunk_size: 500,
-            overlap: 50,
+            overlap: 0, // Changed from 50 to 0 - no overlap for structured data
             strategy: ChunkStrategy::ContentAware,
             min_chunk_size: 100,
         }
@@ -547,6 +547,29 @@ impl ChunkEngine {
     }
 
     fn find_sentence_boundary(&self, chars: &[char], start: usize, max_end: usize) -> usize {
+        // Convert char slice back to string for pattern matching
+        let text: String = chars.iter().collect();
+
+        // Priority 1: Look for record boundaries (double/triple newlines or "Record #")
+        // Search from the end backwards
+        let search_start = if max_end > 200 { max_end - 200 } else { 0 };
+
+        if let Some(idx) = text[search_start..max_end].rfind("\n\n") {
+            let boundary = search_start + idx + 2; // +2 to include the newlines
+            if boundary > start + 50 { // Ensure we have at least 50 chars in the chunk
+                return boundary;
+            }
+        }
+
+        // Look for "Record #" pattern
+        if let Some(idx) = text[search_start..max_end].rfind("Record #") {
+            let boundary = search_start + idx;
+            if boundary > start + 50 {
+                return boundary;
+            }
+        }
+
+        // Priority 2: Look for sentence boundaries
         let search_start = std::cmp::max(start + 50, max_end - 50);
         let search_end = max_end;
 

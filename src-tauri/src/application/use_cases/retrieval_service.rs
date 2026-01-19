@@ -479,7 +479,46 @@ impl RetrievalService {
         expansions
     }
 
-    /// Combine expanded query results using Reciprocal Rank Fusion (RRF)
+    /// Combine expanded query results using weighted score fusion
+    /// This preserves the actual semantic similarity scores instead of just using rank
+    fn weighted_score_fusion(
+        &self,
+        result_sets: Vec<Vec<(i64, f32)>>, // Vec of (chunk_id, score) tuples
+    ) -> Vec<(i64, f32)> {
+        use std::collections::HashMap;
+
+        let mut fused_scores: HashMap<i64, f32> = HashMap::new();
+        let mut score_weights: HashMap<i64, f32> = HashMap::new();
+
+        for results in result_sets {
+            for (chunk_id, score) in results.iter() {
+                // Use the actual score, not just rank
+                // Higher scores from any method contribute more to the final score
+                let weight = *score_weights.get(chunk_id).unwrap_or(&0.0) + 1.0;
+
+                // Average of scores from all methods, weighted by the score itself
+                // This gives more weight to methods that return higher confidence scores
+                *fused_scores.entry(*chunk_id).or_insert(0.0) += score;
+                *score_weights.entry(*chunk_id).or_insert(0.0) = weight;
+            }
+        }
+
+        // Normalize by number of times each chunk appeared
+        let mut combined: Vec<(i64, f32)> = fused_scores
+            .into_iter()
+            .map(|(chunk_id, total_score)| {
+                let weight = score_weights.get(&chunk_id).unwrap_or(&1.0);
+                let avg_score = total_score / weight;
+                (chunk_id, avg_score)
+            })
+            .collect();
+
+        combined.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        combined
+    }
+
+    /// Legacy RRF method - kept for reference but not used
+    #[allow(dead_code)]
     fn reciprocal_rank_fusion(
         &self,
         result_sets: Vec<Vec<(i64, f32)>>, // Vec of (chunk_id, score) tuples
@@ -839,12 +878,12 @@ impl RetrievalService {
             }
         }
 
-        // 3. Combine all results using Reciprocal Rank Fusion
+        // 3. Combine all results using weighted score fusion (preserves actual confidence scores)
         let mut results = Vec::new();
 
         if all_result_sets.len() > 1 {
             // Multiple result sets - fuse them
-            let fused_results = self.reciprocal_rank_fusion(all_result_sets, 60.0);
+            let fused_results = self.weighted_score_fusion(all_result_sets);
 
             for (chunk_id, score) in fused_results.iter().take(top_k) {
                 if let Some(chunk) = chunk_map.get(chunk_id) {
@@ -908,6 +947,19 @@ impl RetrievalService {
         // Sort by score descending
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
         scored.truncate(top_k);
+
+        // Normalize BM25 scores to 0-1 range for fair fusion with cosine similarity
+        // Use sigmoid-like normalization: score / (1 + score)
+        // This maps any positive score to 0-1 range while preserving relative ordering
+        scored = scored
+            .into_iter()
+            .map(|(id, score)| {
+                // Normalize using min-max scaling with soft clipping
+                // Typical BM25 scores are 0-10, so we normalize to 0-1
+                let normalized = score / (1.0 + score);
+                (id, normalized)
+            })
+            .collect();
 
         scored
     }

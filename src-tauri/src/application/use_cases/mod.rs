@@ -17,3 +17,4 @@ pub mod retrieval_service;
 pub mod translate;
 pub mod typegen;
 pub mod web_crawler;
+pub mod csv_preprocessor;

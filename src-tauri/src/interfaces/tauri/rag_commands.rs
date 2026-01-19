@@ -1796,6 +1796,190 @@ pub async fn rag_reembed_chunk(
     Ok("Chunk re-embedded successfully".to_string())
 }
 
+/// Re-index all chunks in a document with the new embedding model
+#[tauri::command]
+pub async fn rag_reindex_document(
+    state: State<'_, Arc<super::AppState>>,
+    document_id: i64,
+) -> Result<ReindexProgress> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!("Re-indexing document: {}", document_id),
+    );
+
+    // Get all chunks for the document
+    let chunks = state
+        .rag_repository
+        .get_chunks(document_id, 100000)
+        .await?;
+
+    let total_chunks = chunks.len();
+    let mut success_count = 0;
+    let mut failed_count = 0;
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!(
+            "Re-indexing {} chunks for document {} with new model",
+            total_chunks, document_id
+        ),
+    );
+
+    for (index, chunk) in chunks.iter().enumerate() {
+        match state
+            .embedding_service
+            .generate_embedding(&chunk.content)
+            .await
+        {
+            Ok(embedding) => {
+                let embedding_bytes = crate::application::use_cases::embedding_service::EmbeddingService::embedding_to_bytes(
+                    &embedding,
+                );
+                if state
+                    .rag_repository
+                    .update_chunk_embedding(chunk.id, &embedding_bytes)
+                    .await
+                    .is_ok()
+                {
+                    success_count += 1;
+                } else {
+                    failed_count += 1;
+                }
+            }
+            Err(e) => {
+                add_log(
+                    &state.logs,
+                    "WARN",
+                    "RAG",
+                    &format!("Failed to embed chunk {}: {}", chunk.id, e),
+                );
+                failed_count += 1;
+            }
+        }
+
+        // Log progress every 10 chunks
+        if (index + 1) % 10 == 0 {
+            add_log(
+                &state.logs,
+                "INFO",
+                "RAG",
+                &format!(
+                    "Re-indexing progress: {}/{} chunks processed",
+                    index + 1,
+                    total_chunks
+                ),
+            );
+        }
+    }
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!(
+            "Document {} re-index complete: {} succeeded, {} failed",
+            document_id, success_count, failed_count
+        ),
+    );
+
+    Ok(ReindexProgress {
+        document_id,
+        total_chunks: total_chunks as i64,
+        processed_chunks: (success_count + failed_count) as i64,
+        success_count: success_count as i64,
+        failed_count: failed_count as i64,
+        current_dimension: state.embedding_service.get_current_dimension(),
+    })
+}
+
+/// Re-index all documents in a collection
+#[tauri::command]
+pub async fn rag_reindex_collection(
+    state: State<'_, Arc<super::AppState>>,
+    collection_id: i64,
+) -> Result<CollectionReindexResult> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!("Re-indexing collection: {}", collection_id),
+    );
+
+    let documents = state
+        .rag_repository
+        .list_documents(Some(collection_id), 100000)
+        .await?;
+
+    let mut document_results = Vec::new();
+    let mut total_chunks = 0;
+    let mut total_success = 0;
+    let mut total_failed = 0;
+
+    for doc in &documents {
+        match rag_reindex_document(state.clone(), doc.id).await {
+            Ok(progress) => {
+                total_chunks += progress.total_chunks;
+                total_success += progress.success_count;
+                total_failed += progress.failed_count;
+                document_results.push(progress);
+            }
+            Err(e) => {
+                add_log(
+                    &state.logs,
+                    "WARN",
+                    "RAG",
+                    &format!("Failed to re-index document {}: {}", doc.id, e),
+                );
+            }
+        }
+    }
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!(
+            "Collection {} re-index complete: {}/{} chunks successful",
+            collection_id,
+            total_success,
+            total_chunks
+        ),
+    );
+
+    Ok(CollectionReindexResult {
+        collection_id,
+        total_documents: documents.len() as i64,
+        document_results,
+        total_chunks,
+        total_success,
+        total_failed,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReindexProgress {
+    pub document_id: i64,
+    pub total_chunks: i64,
+    pub processed_chunks: i64,
+    pub success_count: i64,
+    pub failed_count: i64,
+    pub current_dimension: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CollectionReindexResult {
+    pub collection_id: i64,
+    pub total_documents: i64,
+    pub document_results: Vec<ReindexProgress>,
+    pub total_chunks: i64,
+    pub total_success: i64,
+    pub total_failed: i64,
+}
+
 /// Filter chunks by quality threshold
 #[tauri::command]
 pub async fn rag_filter_low_quality_chunks(
@@ -2258,4 +2442,210 @@ pub async fn rag_get_retrieval_gaps(
             );
             e
         })
+}
+
+// ============================================================
+// CSV PREPROCESSING COMMANDS
+// ============================================================
+
+use crate::application::use_cases::csv_preprocessor::CsvPreprocessor;
+use crate::domain::csv::PreprocessingConfig;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvPreprocessingRequest {
+    pub file_path: String,
+    pub config: Option<CsvPreprocessingRequestConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvPreprocessingRequestConfig {
+    pub min_value_length_threshold: Option<usize>,
+    pub min_lexical_diversity: Option<f32>,
+    pub max_numeric_ratio: Option<f32>,
+    pub min_sample_rows: Option<usize>,
+    pub max_sample_rows: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CsvPreprocessingResponse {
+    pub content_type: String,
+    pub processed_text: String,
+    pub row_count: usize,
+    pub analysis: CsvFieldAnalysis,
+    pub headers: Vec<String>,
+    pub processing_time_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CsvFieldAnalysis {
+    pub avg_value_length: f32,
+    pub lexical_diversity: f32,
+    pub total_fields: usize,
+    pub numeric_ratio: f32,
+    pub row_count: usize,
+    pub empty_field_count: usize,
+    pub max_value_length: usize,
+    pub min_value_length: usize,
+    pub confidence_score: f32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CsvPreviewRow {
+    pub index: usize,
+    pub content: String,
+}
+
+/// Preprocess a CSV file for RAG ingestion
+#[tauri::command]
+pub async fn csv_preprocess_file(
+    state: State<'_, Arc<super::AppState>>,
+    request: CsvPreprocessingRequest,
+) -> Result<CsvPreprocessingResponse> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!("Starting CSV preprocessing: {}", request.file_path),
+    );
+
+    let config = if let Some(req_config) = request.config {
+        PreprocessingConfig {
+            min_value_length_threshold: req_config.min_value_length_threshold
+                .unwrap_or(PreprocessingConfig::default().min_value_length_threshold),
+            min_lexical_diversity: req_config.min_lexical_diversity
+                .unwrap_or(PreprocessingConfig::default().min_lexical_diversity),
+            max_numeric_ratio: req_config.max_numeric_ratio
+                .unwrap_or(PreprocessingConfig::default().max_numeric_ratio),
+            min_sample_rows: req_config.min_sample_rows
+                .unwrap_or(PreprocessingConfig::default().min_sample_rows),
+            max_sample_rows: req_config.max_sample_rows
+                .unwrap_or(PreprocessingConfig::default().max_sample_rows),
+            ..PreprocessingConfig::default()
+        }
+    } else {
+        PreprocessingConfig::default()
+    };
+
+    let preprocessor = CsvPreprocessor::new(config);
+    let path = Path::new(&request.file_path);
+
+    let preprocessed = preprocessor.preprocess_csv(path).await.map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Preprocessing failed: {}", e),
+        );
+        e
+    })?;
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!(
+            "Preprocessing complete: {} rows, {:?} type, {:.2} confidence",
+            preprocessed.row_count,
+            preprocessed.content_type,
+            preprocessed.analysis.confidence_score()
+        ),
+    );
+
+    Ok(CsvPreprocessingResponse {
+        content_type: format!("{:?}", preprocessed.content_type),
+        processed_text: preprocessed.processed_text,
+        row_count: preprocessed.row_count,
+        analysis: CsvFieldAnalysis {
+            avg_value_length: preprocessed.analysis.avg_value_length,
+            lexical_diversity: preprocessed.analysis.lexical_diversity,
+            total_fields: preprocessed.analysis.total_fields,
+            numeric_ratio: preprocessed.analysis.numeric_ratio,
+            row_count: preprocessed.analysis.row_count,
+            empty_field_count: preprocessed.analysis.empty_field_count,
+            max_value_length: preprocessed.analysis.max_value_length,
+            min_value_length: preprocessed.analysis.min_value_length,
+            confidence_score: preprocessed.analysis.confidence_score(),
+        },
+        headers: preprocessed.headers,
+        processing_time_ms: preprocessed.processing_time_ms,
+    })
+}
+
+/// Preview first N rows of preprocessed CSV
+#[tauri::command]
+pub async fn csv_preview_rows(
+    state: State<'_, Arc<super::AppState>>,
+    file_path: String,
+    preview_count: usize,
+) -> Result<Vec<CsvPreviewRow>> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!("Previewing {} rows from: {}", preview_count, file_path),
+    );
+
+    let preprocessor = CsvPreprocessor::default();
+    let content = std::fs::read_to_string(&file_path).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Failed to read file: {}", e),
+        );
+        crate::domain::error::AppError::IoError(format!("Failed to read file: {}", e))
+    })?;
+
+    let preview = preprocessor.preview_rows(&content, preview_count).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Preview failed: {}", e),
+        );
+        e
+    })?;
+
+    Ok(preview
+        .into_iter()
+        .enumerate()
+        .map(|(index, content)| CsvPreviewRow { index, content })
+        .collect())
+}
+
+/// Analyze CSV without full preprocessing
+#[tauri::command]
+pub async fn csv_analyze(
+    state: State<'_, Arc<super::AppState>>,
+    file_path: String,
+) -> Result<String> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!("Analyzing CSV: {}", file_path),
+    );
+
+    let preprocessor = CsvPreprocessor::default();
+    let content = std::fs::read_to_string(&file_path).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Failed to read file: {}", e),
+        );
+        crate::domain::error::AppError::IoError(format!("Failed to read file: {}", e))
+    })?;
+
+    let report = preprocessor.analyze_csv(&content).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Analysis failed: {}", e),
+        );
+        e
+    })?;
+
+    Ok(report)
 }

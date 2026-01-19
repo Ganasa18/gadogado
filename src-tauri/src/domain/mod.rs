@@ -8,3 +8,6 @@ pub mod qa_run;
 pub mod qa_session;
 pub mod rag_entities;
 pub mod typegen;
+
+// CSV preprocessing module
+pub mod csv;

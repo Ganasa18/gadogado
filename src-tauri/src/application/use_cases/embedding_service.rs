@@ -263,8 +263,39 @@ impl EmbeddingService {
     fn resolve_local_embedding_model(model: &str) -> EmbeddingModel {
         match model.trim().to_lowercase().as_str() {
             "all-minilm-l6-v2" => EmbeddingModel::AllMiniLML6V2,
-            _ => EmbeddingModel::AllMiniLML6V2,
+            "nomic-embed-text" | "nomic-embed-text-v1" => EmbeddingModel::NomicEmbedTextV1,
+            "nomic-embed-text-v1.5" | "nomic-embed-text-v15" => EmbeddingModel::NomicEmbedTextV15,
+            "bge-small-en-v1.5" => EmbeddingModel::BGESmallENV15,
+            "bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
+            "bge-large-en-v1.5" => EmbeddingModel::BGELargeENV15,
+            "all-minilm-l12-v2" => EmbeddingModel::AllMiniLML12V2,
+            "multilingual-e5-small" => EmbeddingModel::MultilingualE5Small,
+            "multilingual-e5-base" => EmbeddingModel::MultilingualE5Base,
+            "multilingual-e5-large" => EmbeddingModel::MultilingualE5Large,
+            _ => EmbeddingModel::NomicEmbedTextV15, // Default to best model
         }
+    }
+
+    /// Get the embedding dimension for a given model
+    pub fn get_model_dimension(model: &str) -> usize {
+        match model.trim().to_lowercase().as_str() {
+            "all-minilm-l6-v2" | "all-minilm-l12-v2" => 384,
+            "nomic-embed-text" | "nomic-embed-text-v1" => 768,
+            "nomic-embed-text-v1.5" | "nomic-embed-text-v15" => 768,
+            "bge-small-en-v1.5" => 384,
+            "bge-base-en-v1.5" => 768,
+            "bge-large-en-v1.5" => 1024,
+            "multilingual-e5-small" => 384,
+            "multilingual-e5-base" => 768,
+            "multilingual-e5-large" => 1024,
+            _ => 768, // Default to nomic dimension
+        }
+    }
+
+    /// Get the current embedding dimension from config
+    pub fn get_current_dimension(&self) -> usize {
+        let config = self.config.lock().unwrap();
+        Self::get_model_dimension(&config.model)
     }
 
     pub fn update_config(&self, config: LLMConfig) {
@@ -286,7 +317,7 @@ impl EmbeddingService {
         let embedding = match config.provider {
             LLMProvider::Local => self.generate_local_embedding(text, config).await,
             LLMProvider::OpenAI => self.generate_openai_embedding(text, config).await,
-            LLMProvider::Google => self.generate_gemini_embedding(text, config).await,
+            LLMProvider::Gemini => self.generate_gemini_embedding(text, config).await,
             _ => self.generate_ollama_embedding(text, config).await,
         }?;
 
@@ -305,7 +336,7 @@ impl EmbeddingService {
         match config.provider {
             LLMProvider::Local => self.generate_local_embedding(text, config).await,
             LLMProvider::OpenAI => self.generate_openai_embedding(text, config).await,
-            LLMProvider::Google => self.generate_gemini_embedding(text, config).await,
+            LLMProvider::Gemini => self.generate_gemini_embedding(text, config).await,
             _ => self.generate_ollama_embedding(text, config).await,
         }
     }
@@ -321,7 +352,7 @@ impl EmbeddingService {
             *guard = Some(embedder);
         }
         let embedder = guard
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| AppError::Internal("Local embedder unavailable".to_string()))?;
         let embeddings = embedder
             .embed(vec![text.to_string()], None)

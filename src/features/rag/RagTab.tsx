@@ -27,10 +27,10 @@ import {
 } from "./api";
 import AnimatedContainer from "../../shared/components/AnimatedContainer";
 
-const SUPPORTED_EXTENSIONS = ["pdf", "docx", "xlsx", "txt", "web"];
+const SUPPORTED_EXTENSIONS = ["pdf", "docx", "xlsx", "csv", "txt", "web"];
 
 // Import status types for user feedback
-type ImportStatus = "idle" | "validating" | "processing" | "chunking" | "embedding" | "complete" | "error";
+type ImportStatus = "idle" | "validating" | "preprocessing" | "processing" | "chunking" | "embedding" | "complete" | "error";
 
 interface ImportProgress {
   status: ImportStatus;
@@ -57,6 +57,8 @@ function getFileIcon(fileType: string) {
       return <FileCode className="w-5 h-5 text-blue-500" />;
     case "xlsx":
       return <FileSpreadsheet className="w-5 h-5 text-green-500" />;
+    case "csv":
+      return <FileSpreadsheet className="w-5 h-5 text-emerald-500" />;
     default:
       return <FileText className="w-5 h-5 text-gray-500" />;
   }
@@ -65,6 +67,7 @@ function getFileIcon(fileType: string) {
 function getStatusIcon(status: ImportStatus) {
   switch (status) {
     case "validating":
+    case "preprocessing":
     case "processing":
     case "chunking":
     case "embedding":
@@ -83,6 +86,8 @@ function getStatusMessage(status: ImportStatus, fileName?: string): string {
   switch (status) {
     case "validating":
       return `Validating ${name}...`;
+    case "preprocessing":
+      return `Preprocessing CSV (detecting content type)...`;
     case "processing":
       return `Parsing ${name}...`;
     case "chunking":
@@ -387,21 +392,45 @@ export default function RagTab() {
         fileName,
       });
 
+      // CSV-specific: Show preprocessing status
+      const isCsv = getFileExtension(filePath) === "csv";
+      if (isCsv) {
+        console.log("📊 CSV Import: Starting preprocessing", {
+          fileName,
+          collectionId: selectedCollectionId,
+        });
+
+        setImportProgress({
+          status: "preprocessing",
+          message: getStatusMessage("preprocessing", fileName),
+          fileName,
+        });
+      }
+
       try {
         // The backend handles the full pipeline:
-        // - File parsing
-        // - Smart chunking
-        // - Embedding generation
+        // - CSV: Content type detection → formatting → chunking → embedding
+        // - Other files: Parsing → chunking → embedding
         // - Storage to SQLite
 
         // Simulate progress updates for better UX
+        const preprocessingTimer = isCsv
+          ? setTimeout(() => {
+              setImportProgress({
+                status: "processing",
+                message: `Converting CSV to optimal format for embeddings...`,
+                fileName,
+              });
+            }, 1000)
+          : null;
+
         const progressTimer = setTimeout(() => {
           setImportProgress({
             status: "chunking",
             message: getStatusMessage("chunking", fileName),
             fileName,
           });
-        }, 500);
+        }, isCsv ? 2000 : 500);
 
         const embeddingTimer = setTimeout(() => {
           setImportProgress({
@@ -409,19 +438,26 @@ export default function RagTab() {
             message: getStatusMessage("embedding", fileName),
             fileName,
           });
-        }, 1500);
+        }, isCsv ? 3000 : 1500);
 
         console.info("RAG import requested", {
           filePath,
           collectionId: selectedCollectionId,
+          fileType: getFileExtension(filePath),
+          isCsv,
         });
 
         await importRagFile(filePath, selectedCollectionId);
 
+        if (preprocessingTimer) clearTimeout(preprocessingTimer);
         clearTimeout(progressTimer);
         clearTimeout(embeddingTimer);
 
-        console.info("RAG import completed", { filePath });
+        console.info("RAG import completed", {
+          filePath,
+          fileType: getFileExtension(filePath),
+          isCsv,
+        });
 
         setImportProgress({
           status: "complete",
@@ -819,10 +855,10 @@ export default function RagTab() {
                       Drag & drop files to import
                     </h4>
                     <p className="text-sm text-app-text-muted mt-1">
-                      Supported formats: PDF, DOCX, XLSX, TXT, WEB
+                      Supported formats: PDF, DOCX, XLSX, CSV, TXT, WEB
                     </p>
                     <p className="text-xs text-app-text-muted mt-2">
-                      Files are automatically validated, chunked, and embedded locally
+                      CSV files are auto-detected for optimal embedding format
                     </p>
                   </div>
                   <button

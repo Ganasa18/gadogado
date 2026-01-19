@@ -17,6 +17,7 @@ import { useLlmConfigBuilder } from "../../../hooks/useLlmConfig";
 import { useModelsQuery } from "../../../hooks/useLlmApi";
 import { isTauri } from "../../../utils/tauri";
 import { useThemeStore } from "../../theme/themeStore";
+import { LOCAL_LLM_BASE_URL } from "../../../shared/api/llmConfig";
 
 const LANGUAGES = [
   "Auto Detect",
@@ -76,6 +77,7 @@ export default function GeneralTab() {
   const requiresApiKey =
     provider === "openai" || provider === "gemini" || provider === "dll";
   const providerDefaults: Partial<Record<string, string>> = {
+    local: LOCAL_LLM_BASE_URL,
     openai: "https://api.openai.com/v1",
     gemini: "https://generativelanguage.googleapis.com/v1beta/models",
     ollama: "http://localhost:11434/v1",
@@ -99,7 +101,7 @@ export default function GeneralTab() {
     if (!isLocalProvider) return;
     if (!modelsQuery.data) return;
     setLocalModels(modelsQuery.data);
-    if (modelsQuery.data.length > 0 && !model) {
+    if (modelsQuery.data.length > 0 && !modelsQuery.data.includes(model)) {
       setModel(modelsQuery.data[0]);
     }
   }, [isLocalProvider, modelsQuery.data, setLocalModels, setModel, model]);
@@ -132,6 +134,7 @@ export default function GeneralTab() {
                     | "dll";
                   setProvider(nextProvider);
                   if (nextProvider === "local") {
+                    setBaseUrl(providerDefaults.local ?? LOCAL_LLM_BASE_URL);
                     if (localModels.length > 0) {
                       setModel(localModels[0]);
                     }
@@ -207,7 +210,10 @@ export default function GeneralTab() {
                   value={embeddingModel}
                   onChange={(e: any) => setEmbeddingModel(e.target.value)}
                   className="w-full bg-background border border-app-border rounded p-2 px-3 text-xs appearance-none cursor-pointer hover:border-gray-500 transition outline-none">
-                  <option>all-minilm-l6-v2</option>
+                  <option value="all-minilm-l6-v2">all-MiniLM-L6-v2 (384 dim, fast)</option>
+                  <option value="nomic-embed-text-v1.5">nomic-embed-text-v1.5 (768 dim, best)</option>
+                  <option value="bge-small-en-v1.5">bge-small-en-v1.5 (384 dim)</option>
+                  <option value="multilingual-e5-small">multilingual-e5-small (384 dim, multilingual)</option>
                 </select>
                 <ChevronDown className="w-3 h-3 absolute right-3 top-2.5 text-gray-500 pointer-events-none" />
               </div>

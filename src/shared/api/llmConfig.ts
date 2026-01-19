@@ -12,12 +12,12 @@ export interface LlmConfigOverrides {
 }
 
 const providerLabels: Record<LLMProvider, LlmConfig["provider"]> = {
-  local: "Local",
-  openai: "OpenAI",
-  gemini: "Google",
-  ollama: "OpenAI",
-  llama_cpp: "OpenAI",
-  dll: "DLL",
+  local: "local",
+  openai: "openai",
+  gemini: "gemini",
+  ollama: "ollama",
+  llama_cpp: "llama_cpp",
+  dll: "dll",
 };
 
 export function createLlmConfig(

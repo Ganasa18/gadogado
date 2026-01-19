@@ -14,6 +14,9 @@ import {
   MessageCircle,
   Server,
   BarChart3,
+  Cog,
+  Play,
+  Download,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -23,6 +26,7 @@ export type NavSectionId =
   | "QA Tools Automation"
   | "QA Tools"
   | "RAG"
+  | "Model Destilation"
   | "Dev Tools";
 
 export interface NavItem {
@@ -129,6 +133,35 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "QA History",
         icon: ClipboardList,
         section: "Workspace",
+      },
+    ],
+  },
+  {
+    id: "Model Destilation",
+    items: [
+      {
+        path: "/model-destilation/setup",
+        label: "Setup",
+        icon: Cog,
+        section: "Model Destilation",
+      },
+      {
+        path: "/model-destilation/train",
+        label: "Train",
+        icon: Play,
+        section: "Model Destilation",
+      },
+      {
+        path: "/model-destilation/evaluate",
+        label: "Evaluate",
+        icon: BarChart3,
+        section: "Model Destilation",
+      },
+      {
+        path: "/model-destilation/export",
+        label: "Export",
+        icon: Download,
+        section: "Model Destilation",
       },
     ],
   },

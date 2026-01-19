@@ -21,6 +21,12 @@ import {
   SessionHistoryTab,
   SessionManagerTab,
 } from "../features/qa";
+import {
+  SetupTab,
+  TrainTab,
+  EvaluateTab,
+  ExportTab,
+} from "../features/model-distillation";
 
 export const router = createBrowserRouter([
   {
@@ -103,6 +109,22 @@ export const router = createBrowserRouter([
       {
         path: "tutorial",
         element: <TutorialTab />,
+      },
+      {
+        path: "model-destilation/setup",
+        element: <SetupTab />,
+      },
+      {
+        path: "model-destilation/train",
+        element: <TrainTab />,
+      },
+      {
+        path: "model-destilation/evaluate",
+        element: <EvaluateTab />,
+      },
+      {
+        path: "model-destilation/export",
+        element: <ExportTab />,
       },
     ],
   },

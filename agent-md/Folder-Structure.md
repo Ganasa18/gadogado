@@ -127,6 +127,9 @@ src-tauri/src/
 │ └── http/ # Optional: local debug API (e.g., /debug/logs)
 ├── resource/ # resource external systems
 │ ├── ocr/ # ocr tersseract
+├── src/ #
+│ ├── resources/ # ocr tersseract
+│ │ └──training/ # sql database
 ├── main.rs # Tauri entry point — minimal setup logic
 └── lib.rs # Public API (optional; mainly for integration tests)
 

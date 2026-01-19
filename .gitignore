@@ -28,3 +28,4 @@ src-tauri/.fastembed_cache*
 temp_insert.py
 src-tauri/resources/ocr
 .claude/settings.local.json
+src-tauri/resources/models/base/phi-3-mini-4k-instruct-q5_k_m.gguf

@@ -10,6 +10,9 @@ use crate::application::{
     EnhanceUseCase, QaApiCallUseCase, QaEventUseCase, QaRunUseCase, QaSessionUseCase,
     RagIngestionUseCase, TranslateUseCase, TypeGenUseCase,
 };
+use crate::infrastructure::artifact_store::{
+    ensure_daily_backup, BackupConfig, TrainingArtifactLayout,
+};
 use crate::infrastructure::config::ConfigService;
 use crate::infrastructure::db::qa::init_qa_db;
 use crate::infrastructure::db::qa_api_calls::QaApiCallRepository;
@@ -23,11 +26,28 @@ use crate::infrastructure::db::sqlite::SqliteRepository;
 use crate::infrastructure::db::training::connection::init_training_db;
 use crate::infrastructure::llm_clients::LLMClient;
 use crate::infrastructure::llm_clients::RouterClient;
-use crate::infrastructure::artifact_store::{ensure_daily_backup, BackupConfig, TrainingArtifactLayout};
 use crate::infrastructure::storage::{
     ensure_qa_sessions_root, ensure_session_dir, resolve_app_data_dir,
 };
 use crate::interfaces::mock_server::MockServerState;
+use crate::interfaces::tauri::distillation_commands::{
+    distill_add_dataset_item, distill_cancel_python_training, distill_cleanup_old_backups,
+    distill_create_backup, distill_create_dataset, distill_create_model_version,
+    distill_create_training_run, distill_delete_correction, distill_delete_dataset,
+    distill_delete_soft_label, distill_download_default_model, distill_evaluate_version,
+    distill_generate_soft_labels, distill_get_active_version, distill_get_artifact_layout,
+    distill_get_correction, distill_get_dataset, distill_get_model, distill_get_model_version,
+    distill_get_soft_label, distill_get_training_run, distill_get_version_history,
+    distill_import_base_model, distill_import_dataset_jsonl, distill_link_soft_labels_to_run,
+    distill_list_backups, distill_list_base_models, distill_list_corrections,
+    distill_list_dataset_items, distill_list_datasets, distill_list_model_versions,
+    distill_list_models, distill_list_run_artifacts, distill_list_soft_labels, distill_list_tags,
+    distill_list_training_logs, distill_list_training_runs, distill_list_version_metrics,
+    distill_log_training_step, distill_promote_version, distill_record_artifact,
+    distill_record_metric, distill_register_model, distill_restore_backup,
+    distill_rollback_version, distill_save_correction, distill_start_python_training,
+    distill_update_correction_tags, distill_update_run_status,
+};
 use crate::interfaces::tauri::rag_commands::{
     rag_add_conversation_message,
     rag_analyze_document_quality,
@@ -87,6 +107,8 @@ use crate::interfaces::tauri::rag_commands::{
     rag_record_metric,
     rag_record_retrieval_gap,
     rag_reembed_chunk,
+    rag_reindex_collection,
+    rag_reindex_document,
     rag_register_experiment,
     rag_reset_config,
     rag_run_validation_suite,
@@ -101,33 +123,25 @@ use crate::interfaces::tauri::rag_commands::{
     rag_update_ocr_config,
     rag_update_retrieval_config,
     rag_validate_config,
-};
-use crate::interfaces::tauri::distillation_commands::{
-    distill_add_dataset_item, distill_cleanup_old_backups, distill_create_backup,
-    distill_create_dataset, distill_create_model_version, distill_create_training_run,
-    distill_delete_correction, distill_delete_dataset, distill_get_active_version,
-    distill_get_artifact_layout, distill_get_correction, distill_get_dataset,
-    distill_get_model, distill_get_model_version, distill_get_training_run,
-    distill_list_backups, distill_list_corrections, distill_list_dataset_items,
-    distill_list_datasets, distill_list_models, distill_list_run_artifacts, distill_list_tags,
-    distill_list_training_runs, distill_list_version_metrics, distill_log_training_step,
-    distill_promote_version, distill_record_artifact, distill_record_metric,
-    distill_register_model, distill_restore_backup, distill_save_correction,
-    distill_start_python_training, distill_update_correction_tags, distill_update_run_status,
+    csv_preprocess_file,
+    csv_preview_rows,
+    csv_analyze,
 };
 use crate::interfaces::tauri::{
-    delete_api_key, enhance_prompt, get_api_key, get_llm_models, get_logs, get_translation_history,
-    mock_server_get_config, mock_server_start, mock_server_status, mock_server_stop,
-    mock_server_update_config, qa_append_run_stream_event, qa_capture_native_screenshot,
-    qa_capture_screenshot, qa_create_checkpoint, qa_delete_events, qa_delete_session, qa_end_run,
-    qa_end_session, qa_execute_api_request, qa_explore_session, qa_generate_checkpoint_summary,
-    qa_generate_test_cases, qa_get_session, qa_list_checkpoint_summaries, qa_list_checkpoints,
-    qa_list_events, qa_list_events_page, qa_list_llm_runs, qa_list_run_stream_events,
-    qa_list_screenshots, qa_list_sessions, qa_list_test_cases, qa_open_devtools, qa_record_event,
-    qa_replay_browser, qa_start_browser_recorder, qa_start_run, qa_start_session,
-    qa_stop_browser_recorder, save_api_key, sync_config, sync_embedding_config, sync_languages,
-    sync_shortcuts, translate_prompt, AppState,
+    add_log_message, delete_api_key, enhance_prompt, get_api_key, get_llm_models, get_logs,
+    get_translation_history, llm_chat, mock_server_get_config, mock_server_start,
+    mock_server_status, mock_server_stop, mock_server_update_config, qa_append_run_stream_event,
+    qa_capture_native_screenshot, qa_capture_screenshot, qa_create_checkpoint, qa_delete_events,
+    qa_delete_session, qa_end_run, qa_end_session, qa_execute_api_request, qa_explore_session,
+    qa_generate_checkpoint_summary, qa_generate_test_cases, qa_get_session,
+    qa_list_checkpoint_summaries, qa_list_checkpoints, qa_list_events, qa_list_events_page,
+    qa_list_llm_runs, qa_list_run_stream_events, qa_list_screenshots, qa_list_sessions,
+    qa_list_test_cases, qa_open_devtools, qa_record_event, qa_replay_browser,
+    qa_start_browser_recorder, qa_start_run, qa_start_session, qa_stop_browser_recorder,
+    save_api_key, sync_config, sync_embedding_config, sync_languages, sync_shortcuts,
+    translate_prompt, AppState,
 };
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -610,6 +624,8 @@ pub fn run() {
                     preferred_source: Mutex::new("Auto Detect".to_string()),
                     preferred_target: Mutex::new("English".to_string()),
                     logs: logs.clone(),
+                    distill_trainers: Mutex::new(HashMap::new()),
+                    distill_trainer_launches: Mutex::new(HashSet::new()),
                     metrics_collector,
                     experiment_manager,
                     analytics_logger,
@@ -653,6 +669,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             translate_prompt,
             enhance_prompt,
+            llm_chat,
             get_translation_history,
             save_api_key,
             get_api_key,
@@ -663,6 +680,7 @@ pub fn run() {
             sync_languages,
             sync_shortcuts,
             get_logs,
+            add_log_message,
             mock_server_get_config,
             mock_server_update_config,
             mock_server_start,
@@ -757,6 +775,8 @@ pub fn run() {
             rag_delete_chunk,
             rag_update_chunk_content,
             rag_reembed_chunk,
+            rag_reindex_document,
+            rag_reindex_collection,
             rag_filter_low_quality_chunks,
             // Phase 9: Conversation persistence
             rag_create_conversation,
@@ -772,6 +792,10 @@ pub fn run() {
             rag_get_low_quality_documents,
             rag_record_retrieval_gap,
             rag_get_retrieval_gaps,
+            // CSV preprocessing commands
+            csv_preprocess_file,
+            csv_preview_rows,
+            csv_analyze,
             // Model Distillation commands
             distill_save_correction,
             distill_get_correction,
@@ -785,7 +809,11 @@ pub fn run() {
             distill_delete_dataset,
             distill_add_dataset_item,
             distill_list_dataset_items,
+            distill_import_dataset_jsonl,
             distill_register_model,
+            distill_list_base_models,
+            distill_import_base_model,
+            distill_download_default_model,
             distill_list_models,
             distill_get_model,
             distill_create_training_run,
@@ -793,10 +821,14 @@ pub fn run() {
             distill_get_training_run,
             distill_list_training_runs,
             distill_log_training_step,
+            distill_list_training_logs,
             distill_create_model_version,
+            distill_list_model_versions,
             distill_get_model_version,
             distill_promote_version,
             distill_get_active_version,
+            distill_rollback_version,
+            distill_get_version_history,
             distill_record_metric,
             distill_list_version_metrics,
             distill_record_artifact,
@@ -804,9 +836,17 @@ pub fn run() {
             distill_create_backup,
             distill_list_backups,
             distill_restore_backup,
-             distill_cleanup_old_backups,
-             distill_get_artifact_layout,
-             distill_start_python_training
+            distill_cleanup_old_backups,
+            distill_get_artifact_layout,
+            distill_start_python_training,
+            distill_cancel_python_training,
+            distill_evaluate_version,
+            // Soft Labels commands (Phase 1: Data Preparation)
+            distill_generate_soft_labels,
+            distill_list_soft_labels,
+            distill_get_soft_label,
+            distill_delete_soft_label,
+            distill_link_soft_labels_to_run
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

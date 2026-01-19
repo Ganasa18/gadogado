@@ -2,6 +2,7 @@ use crate::application::use_cases::chunking::{ChunkEngine, PageContent};
 use crate::application::use_cases::embedding_service::EmbeddingService;
 use crate::application::use_cases::rag_config::OcrConfig;
 use crate::application::use_cases::web_crawler::{WebCrawler, WebOcrCapture};
+use crate::application::use_cases::csv_preprocessor::CsvPreprocessor;
 use crate::domain::error::{AppError, Result};
 use crate::domain::llm_config::LLMConfig;
 use crate::domain::rag_entities::{
@@ -1689,6 +1690,8 @@ impl RagIngestionUseCase {
         use crate::interfaces::http::add_log;
         use calamine::{open_workbook, DataType, Reader, Xlsx};
 
+        add_log(logs, "INFO", "RAG", "Parsing XLSX file...");
+
         let mut workbook: Xlsx<_> = open_workbook(file_path).map_err(|e| {
             add_log(
                 logs,
@@ -1715,8 +1718,12 @@ impl RagIngestionUseCase {
                 AppError::Internal(format!("Failed to read Excel range: {}", e))
             })?;
 
+        // Convert Excel data to CSV format for preprocessing
+        add_log(logs, "INFO", "RAG", "Converting Excel to CSV for smart preprocessing...");
+
+        let mut csv_lines = Vec::new();
         let mut rows = Vec::new();
-        let mut text_lines = Vec::new();
+
         for row in range.rows() {
             let row_data: Vec<String> = row
                 .iter()
@@ -1726,25 +1733,102 @@ impl RagIngestionUseCase {
                         .unwrap_or_else(|| format!("{}", cell))
                 })
                 .collect();
-            let trimmed_cells: Vec<&str> = row_data
-                .iter()
-                .map(|cell| cell.trim())
-                .filter(|cell| !cell.is_empty())
-                .collect();
-            if !trimmed_cells.is_empty() {
-                text_lines.push(trimmed_cells.join(" | "));
-            }
+
+            // Convert to CSV format
+            let csv_line = row_data.iter()
+                .map(|field| {
+                    // Escape fields containing commas or quotes
+                    let field = field.replace('"', "\"\"");
+                    if field.contains(',') || field.contains('"') || field.contains('\n') {
+                        format!("\"{}\"", field)
+                    } else {
+                        field.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+
+            csv_lines.push(csv_line);
             rows.push(row_data);
         }
 
-        // Excel is single-page, use Plain content type
-        let content = if text_lines.is_empty() {
+        // Join all CSV lines
+        let csv_content = csv_lines.join("\n");
+
+        add_log(
+            logs,
+            "INFO",
+            "RAG",
+            &format!("Excel converted to CSV format ({} rows)", rows.len()),
+        );
+
+        // Use the CSV preprocessor to detect content type and format
+        let preprocessor = CsvPreprocessor::default();
+
+        add_log(logs, "INFO", "RAG", "Running smart content detection on Excel data...");
+
+        let preprocessed = preprocessor.preprocess_csv_content(&csv_content).map_err(|e| {
+            add_log(
+                logs,
+                "ERROR",
+                "RAG",
+                &format!("Failed to preprocess Excel data: {}", e),
+            );
+            AppError::Internal(format!("Failed to preprocess Excel data: {}", e))
+        })?;
+
+        add_log(
+            logs,
+            "INFO",
+            "RAG",
+            &format!(
+                "Excel preprocessing complete:\n\
+                 - Content type: {:?}\n\
+                 - Rows processed: {}\n\
+                 - Avg field length: {:.1} chars\n\
+                 - Lexical diversity: {:.2}\n\
+                 - Confidence: {:.2}",
+                preprocessed.content_type,
+                preprocessed.row_count,
+                preprocessed.analysis.avg_value_length,
+                preprocessed.analysis.lexical_diversity,
+                preprocessed.analysis.confidence_score()
+            ),
+        );
+
+        // Parse rows for Excel data storage (preserve original structure)
+        let excel_rows = self.parse_excel_rows_for_storage(&range);
+
+        // Use the preprocessed text for embedding
+        let parsed_content = if preprocessed.processed_text.trim().is_empty() {
             ParsedContent::Plain(None)
         } else {
-            ParsedContent::Plain(Some(text_lines.join("\n")))
+            ParsedContent::Plain(Some(preprocessed.processed_text))
         };
 
-        Ok((content, 1, Some(rows)))
+        Ok((parsed_content, 1, Some(excel_rows)))
+    }
+
+    /// Parse Excel rows for storage in excel_data table
+    /// This preserves the original Excel structure for structured queries
+    fn parse_excel_rows_for_storage(&self, range: &calamine::Range<calamine::Data>) -> Vec<Vec<String>> {
+        use calamine::DataType;
+
+        let mut rows = Vec::new();
+
+        for row in range.rows() {
+            let row_data: Vec<String> = row
+                .iter()
+                .map(|cell| {
+                    cell.as_string()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("{}", cell))
+                })
+                .collect();
+            rows.push(row_data);
+        }
+
+        rows
     }
 
     fn parse_csv(
@@ -1753,69 +1837,77 @@ impl RagIngestionUseCase {
         logs: &std::sync::Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
     ) -> ParseResult {
         use crate::interfaces::http::add_log;
-        use std::io::BufRead;
 
-        add_log(logs, "INFO", "RAG", "Parsing CSV file...");
+        add_log(logs, "INFO", "RAG", "Preprocessing CSV file...");
 
-        let file = fs::File::open(file_path).map_err(|e| {
+        // Use the new CSV preprocessor
+        let preprocessor = CsvPreprocessor::default();
+
+        // Read file content for preprocessing
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
             add_log(
                 logs,
                 "ERROR",
                 "RAG",
-                &format!("Failed to open CSV file {}: {}", file_path, e),
+                &format!("Failed to read CSV file {}: {}", file_path, e),
             );
-            AppError::Internal(format!("Failed to open CSV file: {}", e))
+            AppError::Internal(format!("Failed to read CSV file: {}", e))
         })?;
 
-        let reader = std::io::BufReader::new(file);
-        let mut rows: Vec<Vec<String>> = Vec::new();
-        let mut text_lines: Vec<String> = Vec::new();
-
-        for (line_num, line_result) in reader.lines().enumerate() {
-            let line = match line_result {
-                Ok(l) => l,
-                Err(e) => {
-                    add_log(
-                        logs,
-                        "WARN",
-                        "RAG",
-                        &format!("Failed to read line {}: {}", line_num + 1, e),
-                    );
-                    continue;
-                }
-            };
-
-            // Simple CSV parsing (handles basic comma-separated values)
-            // For complex CSVs with quoted fields, consider using the csv crate
-            let row_data: Vec<String> = self.parse_csv_line(&line);
-
-            let trimmed_cells: Vec<&str> = row_data
-                .iter()
-                .map(|cell| cell.trim())
-                .filter(|cell| !cell.is_empty())
-                .collect();
-
-            if !trimmed_cells.is_empty() {
-                text_lines.push(trimmed_cells.join(" | "));
-            }
-            rows.push(row_data);
-        }
+        // Preprocess the CSV
+        let preprocessed = preprocessor.preprocess_csv_content(&content).map_err(|e| {
+            add_log(
+                logs,
+                "ERROR",
+                "RAG",
+                &format!("Failed to preprocess CSV: {}", e),
+            );
+            AppError::Internal(format!("Failed to preprocess CSV: {}", e))
+        })?;
 
         add_log(
             logs,
             "INFO",
             "RAG",
-            &format!("Parsed {} rows from CSV", rows.len()),
+            &format!(
+                "CSV preprocessing complete:\n\
+                 - Content type: {:?}\n\
+                 - Rows processed: {}\n\
+                 - Avg field length: {:.1} chars\n\
+                 - Lexical diversity: {:.2}\n\
+                 - Confidence: {:.2}",
+                preprocessed.content_type,
+                preprocessed.row_count,
+                preprocessed.analysis.avg_value_length,
+                preprocessed.analysis.lexical_diversity,
+                preprocessed.analysis.confidence_score()
+            ),
         );
 
-        // CSV is single-page, similar to Excel
-        let content = if text_lines.is_empty() {
+        // Parse rows for Excel data storage
+        let rows = self.parse_csv_rows_for_storage(&content);
+
+        // Use the preprocessed text for embedding
+        let parsed_content = if preprocessed.processed_text.trim().is_empty() {
             ParsedContent::Plain(None)
         } else {
-            ParsedContent::Plain(Some(text_lines.join("\n")))
+            ParsedContent::Plain(Some(preprocessed.processed_text))
         };
 
-        Ok((content, 1, Some(rows)))
+        Ok((parsed_content, 1, Some(rows)))
+    }
+
+    /// Parse CSV rows for storage in excel_data table
+    /// This preserves the original CSV structure for structured queries
+    fn parse_csv_rows_for_storage(&self, content: &str) -> Vec<Vec<String>> {
+        let mut rows = Vec::new();
+
+        for line in content.lines() {
+            let row_data: Vec<String> = self.parse_csv_line(line);
+            rows.push(row_data);
+        }
+
+        rows
     }
 
     /// Parse a single CSV line, handling quoted fields
