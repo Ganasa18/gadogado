@@ -84,7 +84,10 @@ impl QaCheckpointRepository {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to list checkpoints: {e}")))?;
 
-        Ok(checkpoints.into_iter().map(|checkpoint| checkpoint.into()).collect())
+        Ok(checkpoints
+            .into_iter()
+            .map(|checkpoint| checkpoint.into())
+            .collect())
     }
 
     pub async fn latest_checkpoint(&self, session_id: &str) -> Result<Option<QaCheckpoint>> {
@@ -164,7 +167,10 @@ impl QaCheckpointRepository {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to list checkpoint summaries: {e}")))?;
 
-        Ok(summaries.into_iter().map(|summary| summary.into()).collect())
+        Ok(summaries
+            .into_iter()
+            .map(|summary| summary.into())
+            .collect())
     }
 
     pub async fn get_checkpoint_summary(

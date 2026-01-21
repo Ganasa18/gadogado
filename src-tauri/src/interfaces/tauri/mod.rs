@@ -9,7 +9,7 @@ use crate::application::use_cases::retrieval_service::RetrievalService;
 use crate::application::use_cases::translate::TranslateUseCase;
 use crate::application::use_cases::typegen::TypeGenUseCase;
 use crate::domain::error::{AppError, Result};
-use crate::domain::llm_config::LLMConfig;
+use crate::domain::llm_config::{ChatMessage, LLMConfig};
 use crate::domain::prompt::Prompt;
 use crate::domain::qa_checkpoint::{QaCheckpoint, QaCheckpointSummary, QaLlmRun, QaTestCase};
 use crate::domain::qa_event::{QaEvent, QaEventInput, QaEventPage};
@@ -21,27 +21,30 @@ use crate::infrastructure::storage::{
     ensure_qa_sessions_root, ensure_session_dir, ensure_session_screenshots_dir,
     resolve_app_data_dir,
 };
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::{Command as StdCommand, Stdio};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 use tracing::error;
 use uuid::Uuid;
 
+use crate::application::use_cases::conversation_service::ConversationService;
+use crate::application::use_cases::embedding_service::EmbeddingService;
+use crate::application::use_cases::rag_analytics::SharedAnalyticsLogger;
+use crate::application::use_cases::rag_config::{SharedConfigManager, SharedFeedbackCollector};
+use crate::application::use_cases::rag_metrics::{SharedExperimentManager, SharedMetricsCollector};
 use crate::infrastructure::config::ConfigService;
 use crate::infrastructure::llm_clients::LLMClient;
 use crate::interfaces::http::{add_log, add_log_entry, LogEntry};
 use crate::interfaces::mock_server::{
-    build_status as build_mock_status, save_config as save_mock_server_config,
-    start_mock_server, stop_mock_server, MockServerConfig, MockServerState, MockServerStatus,
+    build_status as build_mock_status, save_config as save_mock_server_config, start_mock_server,
+    stop_mock_server, MockServerConfig, MockServerState, MockServerStatus,
 };
-use crate::application::use_cases::embedding_service::EmbeddingService;
-use crate::application::use_cases::rag_config::{SharedConfigManager, SharedFeedbackCollector};
-use crate::application::use_cases::rag_metrics::{SharedMetricsCollector, SharedExperimentManager};
-use crate::application::use_cases::rag_analytics::SharedAnalyticsLogger;
-use crate::application::use_cases::conversation_service::ConversationService;
 
+pub mod distillation_commands;
 pub mod rag_commands;
 use base64::Engine as _;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -76,6 +79,8 @@ pub struct AppState {
     pub preferred_source: Mutex<String>,
     pub preferred_target: Mutex<String>,
     pub logs: Arc<Mutex<Vec<crate::interfaces::http::LogEntry>>>,
+    pub distill_trainers: Mutex<HashMap<String, DistillTrainerHandle>>,
+    pub distill_trainer_launches: Mutex<HashSet<String>>,
     /// RAG metrics collector for performance tracking
     pub metrics_collector: SharedMetricsCollector,
     /// A/B experiment manager for RAG experiments
@@ -124,6 +129,12 @@ pub(crate) struct QaRecorderHandle {
     session_id: String,
     run_id: String,
     mode: String,
+}
+
+pub(crate) struct DistillTrainerHandle {
+    child: Arc<AsyncMutex<Child>>,
+    run_id: String,
+    run_dir: PathBuf,
 }
 
 fn emit_status_log(
@@ -504,6 +515,48 @@ pub async fn enhance_prompt(
 }
 
 #[tauri::command]
+pub async fn llm_chat(
+    state: State<'_, Arc<AppState>>,
+    config: LLMConfig,
+    messages: Vec<ChatMessage>,
+) -> Result<String> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "LLM",
+        &format!(
+            "LLM chat request - provider: {}, model: {}, messages: {}",
+            config.provider,
+            config.model,
+            messages.len()
+        ),
+    );
+
+    // Extract system and user messages
+    let mut system_message = String::from("You are a helpful AI assistant.");
+    let mut user_messages = Vec::new();
+
+    for msg in &messages {
+        match msg.role.as_str() {
+            "system" => system_message = msg.content.clone(),
+            "user" => user_messages.push(msg.content.clone()),
+            _ => {}
+        }
+    }
+
+    // Join user messages with newlines
+    let user_message = user_messages.join("\n");
+
+    // Use the translate use case as a wrapper for general LLM calls
+    // In production, this should be its own dedicated use case
+    state
+        .translate_use_case
+        .execute(&config, user_message, String::new(), system_message)
+        .await
+        .map(|p| p.content)
+}
+
+#[tauri::command]
 pub async fn get_translation_history(
     state: State<'_, Arc<AppState>>,
     limit: i64,
@@ -528,6 +581,17 @@ pub async fn get_api_key(state: State<'_, Arc<AppState>>, provider: String) -> R
 #[tauri::command]
 pub async fn delete_api_key(state: State<'_, Arc<AppState>>, provider: String) -> Result<()> {
     state.config_service.delete_api_key(&provider)
+}
+
+#[tauri::command]
+pub async fn add_log_message(
+    state: State<'_, Arc<AppState>>,
+    level: String,
+    source: String,
+    message: String,
+) -> Result<()> {
+    add_log(&state.logs, &level, &source, &message);
+    Ok(())
 }
 
 #[tauri::command]
@@ -603,7 +667,12 @@ pub async fn get_logs(state: State<'_, Arc<AppState>>) -> Result<Vec<LogEntry>> 
 
 #[tauri::command]
 pub async fn mock_server_get_config(state: State<'_, Arc<AppState>>) -> Result<MockServerConfig> {
-    add_log(&state.logs, "INFO", "MockServer", "Mock server config requested");
+    add_log(
+        &state.logs,
+        "INFO",
+        "MockServer",
+        "Mock server config requested",
+    );
     let config = state.mock_server.config.lock().unwrap();
     Ok(config.clone())
 }
@@ -613,30 +682,58 @@ pub async fn mock_server_update_config(
     state: State<'_, Arc<AppState>>,
     config: MockServerConfig,
 ) -> Result<MockServerConfig> {
-    add_log(&state.logs, "INFO", "MockServer", "Mock server config updated");
-    let mut current = state.mock_server.config.lock().unwrap();
-    *current = config.clone();
+    add_log(
+        &state.logs,
+        "INFO",
+        "MockServer",
+        "Mock server config updating...",
+    );
+    {
+        let mut current = state.mock_server.config.lock().unwrap();
+        *current = config.clone();
+    } // Release the lock before saving to avoid deadlock
     save_mock_server_config(&state.mock_server)?;
+    add_log(
+        &state.logs,
+        "INFO",
+        "MockServer",
+        "Mock server config saved successfully",
+    );
     Ok(config)
 }
 
 #[tauri::command]
 pub async fn mock_server_start(state: State<'_, Arc<AppState>>) -> Result<MockServerStatus> {
-    add_log(&state.logs, "INFO", "MockServer", "Mock server start requested");
+    add_log(
+        &state.logs,
+        "INFO",
+        "MockServer",
+        "Mock server start requested",
+    );
     start_mock_server(state.mock_server.clone()).await?;
     Ok(build_mock_status(&state.mock_server))
 }
 
 #[tauri::command]
 pub async fn mock_server_stop(state: State<'_, Arc<AppState>>) -> Result<MockServerStatus> {
-    add_log(&state.logs, "INFO", "MockServer", "Mock server stop requested");
+    add_log(
+        &state.logs,
+        "INFO",
+        "MockServer",
+        "Mock server stop requested",
+    );
     stop_mock_server(state.mock_server.clone()).await?;
     Ok(build_mock_status(&state.mock_server))
 }
 
 #[tauri::command]
 pub async fn mock_server_status(state: State<'_, Arc<AppState>>) -> Result<MockServerStatus> {
-    add_log(&state.logs, "INFO", "MockServer", "Mock server status requested");
+    add_log(
+        &state.logs,
+        "INFO",
+        "MockServer",
+        "Mock server status requested",
+    );
     Ok(build_mock_status(&state.mock_server))
 }
 

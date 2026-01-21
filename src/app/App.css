@@ -74,6 +74,7 @@
   --ring: 240 4.9% 83.9%;
 
   --radius: 0.5rem;
+  
 }
 
 /* Webkit Scrollbar Styling to match desktop app look */
@@ -93,6 +94,10 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
+}
+
+html{
+  overflow-x: hidden;
 }
 
 .dark {

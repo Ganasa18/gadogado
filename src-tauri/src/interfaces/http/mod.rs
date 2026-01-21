@@ -659,7 +659,6 @@ pub fn add_log(logs: &Mutex<Vec<LogEntry>>, level: &str, source: &str, message: 
     add_log_entry(logs, level, source, message);
 }
 
-
 pub fn start_server(
     tauri_state: Arc<AppState>,
     logs: Arc<Mutex<Vec<LogEntry>>>,

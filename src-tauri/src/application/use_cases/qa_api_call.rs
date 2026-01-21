@@ -43,9 +43,7 @@ impl QaApiCallUseCase {
 
         let request_body_hash = request_body.as_ref().map(|body| hash_body(body));
         let response_body_hash = response_body.as_ref().map(|body| hash_body(body));
-        let request_body_json = request_body
-            .as_ref()
-            .map(|body| truncate_body(body));
+        let request_body_json = request_body.as_ref().map(|body| truncate_body(body));
 
         let call = QaApiCall {
             id: Uuid::new_v4().to_string(),

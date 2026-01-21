@@ -28,7 +28,7 @@ export default function Layout() {
       provider: state.provider,
       model: state.model,
       shortcutsEnabled: state.shortcutsEnabled,
-    }))
+    })),
   );
 
   useSyncConfig();
@@ -49,15 +49,15 @@ export default function Layout() {
       NAV_SECTIONS.map((section) => ({
         ...section,
         items: section.items.filter(
-          (item) => !item.requiresShortcuts || shortcutsEnabled
+          (item) => !item.requiresShortcuts || shortcutsEnabled,
         ),
       })),
-    [shortcutsEnabled]
+    [shortcutsEnabled],
   );
 
   const visibleItems = useMemo(
     () => visibleSections.flatMap((section) => section.items),
-    [visibleSections]
+    [visibleSections],
   );
 
   const rawPath = location.pathname === "/" ? "/general" : location.pathname;
@@ -76,7 +76,7 @@ export default function Layout() {
 
   const activeItem = useMemo(
     () => visibleItems.find((item) => item.path === activePath),
-    [visibleItems, activePath]
+    [visibleItems, activePath],
   );
 
   const ActiveIcon = activeItem?.icon ?? Settings;
@@ -87,7 +87,7 @@ export default function Layout() {
     (path: string) => {
       navigate(path);
     },
-    [navigate]
+    [navigate],
   );
 
   return (
@@ -118,17 +118,17 @@ export default function Layout() {
         <nav
           className={cn(
             "flex flex-col border-r border-app-border bg-app-panel transition-all duration-200",
-            sidebarCollapsed ? "w-16" : "w-64"
+            sidebarCollapsed ? "w-16" : "w-64",
           )}>
           <div
             className={cn(
               "flex items-center border-b border-app-border px-3 py-3",
-              sidebarCollapsed ? "justify-center" : "justify-between"
+              sidebarCollapsed ? "justify-center" : "justify-between",
             )}>
             <span
               className={cn(
                 "text-[10px] uppercase font-bold text-app-subtext/60 tracking-widest",
-                sidebarCollapsed && "sr-only"
+                sidebarCollapsed && "sr-only",
               )}>
               Navigation
             </span>
@@ -142,7 +142,7 @@ export default function Layout() {
               <ChevronRight
                 className={cn(
                   "w-4 h-4 mx-auto transition-transform",
-                  sidebarCollapsed ? "rotate-0" : "rotate-180"
+                  sidebarCollapsed ? "rotate-0" : "rotate-180",
                 )}
               />
             </button>
@@ -150,14 +150,14 @@ export default function Layout() {
           <div
             className={cn(
               "flex-1 overflow-y-auto space-y-6",
-              sidebarCollapsed ? "py-4 px-2" : "py-4 px-4"
+              sidebarCollapsed ? "py-4 px-2" : "py-4 px-4",
             )}>
             {visibleSections.map((section) => (
               <div key={section.id} className="space-y-1.5">
                 <div
                   className={cn(
                     "px-2 pb-2 text-[10px] uppercase font-bold text-app-subtext/60 tracking-widest",
-                    sidebarCollapsed && "sr-only"
+                    sidebarCollapsed && "sr-only",
                   )}>
                   {section.id}
                 </div>
@@ -177,7 +177,7 @@ export default function Layout() {
           <div
             className={cn(
               "p-4 mt-auto border-t border-app-border bg-black/10",
-              sidebarCollapsed && "hidden"
+              sidebarCollapsed && "hidden",
             )}>
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between text-[10px]">
@@ -195,14 +195,14 @@ export default function Layout() {
                   {provider === "local"
                     ? "Local LLM"
                     : provider === "ollama"
-                    ? "Ollama"
-                    : provider === "llama_cpp"
-                    ? "Llama.cpp"
-                    : provider === "openai"
-                    ? "OpenAI"
-                    : provider === "gemini"
-                    ? "Gemini"
-                    : "DLL"}
+                      ? "Ollama"
+                      : provider === "llama_cpp"
+                        ? "Llama.cpp"
+                        : provider === "openai"
+                          ? "OpenAI"
+                          : provider === "gemini"
+                            ? "Gemini"
+                            : "DLL"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-[10px]">
@@ -219,11 +219,18 @@ export default function Layout() {
 
         <section className="flex-1 flex flex-col min-w-0 bg-app-bg relative overflow-hidden">
           <div className="flex-1 overflow-y-auto relative no-scrollbar">
-            <Outlet context={{ capturedText, onTextConsumed: () => setCapturedText(null) }} />
+            <Outlet
+              context={{
+                capturedText,
+                onTextConsumed: () => setCapturedText(null),
+              }}
+            />
           </div>
         </section>
       </div>
       <TerminalPanel />
+      <br />
+
       <PopupTranslateDialog
         open={popupOpen}
         initialText={capturedText}
@@ -262,7 +269,7 @@ function NavItemButton({
         isCollapsed ? "justify-center px-2" : "justify-start gap-3 px-3",
         isActive
           ? "bg-app-card text-app-text border-app-border shadow-sm"
-          : "text-app-subtext hover:text-app-text hover:bg-app-card/50"
+          : "text-app-subtext hover:text-app-text hover:bg-app-card/50",
       )}>
       <div className={isActive ? "text-app-accent" : "text-app-subtext"}>
         <Icon className="w-4 h-4" />
@@ -271,7 +278,7 @@ function NavItemButton({
         className={cn(
           "text-[13px] font-medium tracking-tight",
           isCollapsed && "sr-only",
-          isActive && "text-app-text"
+          isActive && "text-app-text",
         )}>
         {item.label}
       </span>

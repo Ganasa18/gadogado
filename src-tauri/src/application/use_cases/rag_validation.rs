@@ -75,7 +75,12 @@ impl RagValidationSuite {
                     .query_cached(case.collection_id, &case.query, top_k)
                     .await?
             } else {
-                (retrieval_service.query(case.collection_id, &case.query, top_k).await?, false)
+                (
+                    retrieval_service
+                        .query(case.collection_id, &case.query, top_k)
+                        .await?,
+                    false,
+                )
             };
 
             if options.optimized {
@@ -132,15 +137,15 @@ impl RagValidationSuite {
             return (0.0, 0.0);
         }
 
-        let keywords: Vec<String> = expected_keywords
-            .iter()
-            .map(|k| k.to_lowercase())
-            .collect();
+        let keywords: Vec<String> = expected_keywords.iter().map(|k| k.to_lowercase()).collect();
         let mut matched_results = 0usize;
         let mut matched_keywords = 0usize;
 
         for keyword in &keywords {
-            if results.iter().any(|r| Self::contains_keyword(&r.content, keyword)) {
+            if results
+                .iter()
+                .any(|r| Self::contains_keyword(&r.content, keyword))
+            {
                 matched_keywords += 1;
             }
         }
@@ -200,8 +205,8 @@ impl RagValidationSuite {
         }
 
         let has_alphanumeric = content.chars().any(|c| c.is_alphanumeric());
-        let alpha_ratio = content.chars().filter(|c| c.is_alphabetic()).count() as f32
-            / len.max(1) as f32;
+        let alpha_ratio =
+            content.chars().filter(|c| c.is_alphabetic()).count() as f32 / len.max(1) as f32;
         let has_sentences = content.contains('.') || content.contains('!') || content.contains('?');
         let has_capital = content.chars().any(|c| c.is_uppercase());
 

@@ -2,6 +2,7 @@ use crate::application::use_cases::chunking::{ChunkEngine, PageContent};
 use crate::application::use_cases::embedding_service::EmbeddingService;
 use crate::application::use_cases::rag_config::OcrConfig;
 use crate::application::use_cases::web_crawler::{WebCrawler, WebOcrCapture};
+use crate::application::use_cases::csv_preprocessor::CsvPreprocessor;
 use crate::domain::error::{AppError, Result};
 use crate::domain::llm_config::LLMConfig;
 use crate::domain::rag_entities::{
@@ -204,7 +205,8 @@ impl RagIngestionUseCase {
         // Calculate standard deviation of pixel values
         let pixels: Vec<f64> = gray.pixels().map(|p| p[0] as f64).collect();
         let mean: f64 = pixels.iter().sum::<f64>() / pixels.len() as f64;
-        let variance: f64 = pixels.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / pixels.len() as f64;
+        let variance: f64 =
+            pixels.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / pixels.len() as f64;
         let std_dev = variance.sqrt();
 
         // If standard deviation is low, image has poor contrast and needs preprocessing
@@ -266,7 +268,9 @@ impl RagIngestionUseCase {
 
         let result = match ext.as_str() {
             "pdf" => {
-                let pages = self.ocr_pdf_with_config(file_path, config, &logs).unwrap_or_default();
+                let pages = self
+                    .ocr_pdf_with_config(file_path, config, &logs)
+                    .unwrap_or_default();
                 let total_pages = pages.len();
                 let joined = pages
                     .iter()
@@ -346,8 +350,8 @@ impl RagIngestionUseCase {
     ) -> Option<String> {
         use crate::interfaces::http::add_log;
 
-        let tesseract_cmd = std::env::var("TESSERACT_CMD")
-            .unwrap_or_else(|_| "tesseract".to_string());
+        let tesseract_cmd =
+            std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
         let mut command = Command::new(&tesseract_cmd);
         if let Ok(tessdata_prefix) = std::env::var("TESSDATA_PREFIX") {
             command.env("TESSDATA_PREFIX", tessdata_prefix);
@@ -452,10 +456,8 @@ impl RagIngestionUseCase {
             &format!("Rasterizing PDF with {} for OCR", pdftoppm_cmd),
         );
 
-        let output_dir = std::env::temp_dir().join(format!(
-            "gadogado-ocr-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let output_dir =
+            std::env::temp_dir().join(format!("gadogado-ocr-{}", uuid::Uuid::new_v4()));
         if let Err(err) = fs::create_dir_all(&output_dir) {
             add_log(
                 logs,
@@ -719,14 +721,8 @@ impl RagIngestionUseCase {
             add_log(&logs, "INFO", "RAG", "Excel data stored");
         }
 
-        self.store_chunks_for_document(
-            &document,
-            parsed_content,
-            &file_name,
-            file_type,
-            &logs,
-        )
-        .await?;
+        self.store_chunks_for_document(&document, parsed_content, &file_name, file_type, &logs)
+            .await?;
 
         Ok(document)
     }
@@ -756,7 +752,11 @@ impl RagIngestionUseCase {
             .last()
             .and_then(|segment| {
                 let trimmed = segment.trim();
-                if trimmed.is_empty() { None } else { Some(trimmed) }
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
             })
             .unwrap_or("web")
             .split('?')
@@ -764,8 +764,9 @@ impl RagIngestionUseCase {
             .unwrap_or("web")
             .to_string();
 
-        let (parsed_content, pages, _) =
-            self.parse_web_with_options(url, &logs, max_pages, max_depth).await?;
+        let (parsed_content, pages, _) = self
+            .parse_web_with_options(url, &logs, max_pages, max_depth)
+            .await?;
 
         add_log(
             &logs,
@@ -794,14 +795,8 @@ impl RagIngestionUseCase {
             &format!("Document created with ID: {}", document.id),
         );
 
-        self.store_chunks_for_document(
-            &document,
-            parsed_content,
-            &file_name,
-            "web",
-            &logs,
-        )
-        .await?;
+        self.store_chunks_for_document(&document, parsed_content, &file_name, "web", &logs)
+            .await?;
 
         Ok(document)
     }
@@ -825,7 +820,8 @@ impl RagIngestionUseCase {
                     "RAG",
                     &format!(
                         "Chunking {} pages ({} chars total) with page tracking...",
-                        page_contents.len(), total_chars
+                        page_contents.len(),
+                        total_chars
                     ),
                 );
 
@@ -909,7 +905,8 @@ impl RagIngestionUseCase {
 
             // Update chunk quality if available
             if let Some(quality) = chunk.quality_score {
-                let _ = self.rag_repository
+                let _ = self
+                    .rag_repository
                     .update_chunk_quality(
                         created_chunk.id,
                         quality as f64,
@@ -946,10 +943,7 @@ impl RagIngestionUseCase {
                                     e
                                 ),
                             );
-                            AppError::Internal(format!(
-                                "Failed to update chunk embedding: {}",
-                                e
-                            ))
+                            AppError::Internal(format!("Failed to update chunk embedding: {}", e))
                         })?;
                     add_log(
                         logs,
@@ -980,7 +974,8 @@ impl RagIngestionUseCase {
 
         // Calculate average chunk quality
         let chunk_count = chunks.len() as i64;
-        let total_quality: f64 = chunks.iter()
+        let total_quality: f64 = chunks
+            .iter()
             .filter_map(|c| c.quality_score.map(|q| q as f64))
             .sum();
         let avg_quality = if chunk_count > 0 && total_quality > 0.0 {
@@ -1007,10 +1002,7 @@ impl RagIngestionUseCase {
             logs,
             "INFO",
             "RAG",
-            &format!(
-                "Document quality: {:.2}",
-                avg_quality.unwrap_or(0.0)
-            ),
+            &format!("Document quality: {:.2}", avg_quality.unwrap_or(0.0)),
         );
 
         add_log(logs, "INFO", "RAG", "Import completed successfully");
@@ -1083,10 +1075,8 @@ impl RagIngestionUseCase {
         );
 
         // Create temp directory for OCR processing
-        let output_dir = std::env::temp_dir().join(format!(
-            "gadogado-ocr-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let output_dir =
+            std::env::temp_dir().join(format!("gadogado-ocr-{}", uuid::Uuid::new_v4()));
         if let Err(err) = fs::create_dir_all(&output_dir) {
             add_log(
                 logs,
@@ -1217,7 +1207,12 @@ impl RagIngestionUseCase {
 
         // Check if image needs preprocessing
         let (ocr_path, preprocessed_path) = if self.needs_preprocessing(image_path) {
-            add_log(logs, "INFO", "RAG", "Applying image preprocessing for better OCR...");
+            add_log(
+                logs,
+                "INFO",
+                "RAG",
+                "Applying image preprocessing for better OCR...",
+            );
             if let Some(preprocessed) = self.preprocess_image_for_ocr(image_path) {
                 (preprocessed.clone(), Some(preprocessed))
             } else {
@@ -1227,8 +1222,8 @@ impl RagIngestionUseCase {
             (image_path.to_path_buf(), None)
         };
 
-        let tesseract_cmd = std::env::var("TESSERACT_CMD")
-            .unwrap_or_else(|_| "tesseract".to_string());
+        let tesseract_cmd =
+            std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
         let mut command = Command::new(&tesseract_cmd);
         if let Ok(tessdata_prefix) = std::env::var("TESSDATA_PREFIX") {
             command.env("TESSDATA_PREFIX", tessdata_prefix);
@@ -1292,7 +1287,8 @@ impl RagIngestionUseCase {
 
         add_log(logs, "INFO", "RAG", "Trying direct Tesseract OCR on PDF...");
 
-        let tesseract_cmd = std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
+        let tesseract_cmd =
+            std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
         let mut command = Command::new(&tesseract_cmd);
         if let Ok(tessdata_prefix) = std::env::var("TESSDATA_PREFIX") {
             command.env("TESSDATA_PREFIX", tessdata_prefix);
@@ -1345,7 +1341,8 @@ impl RagIngestionUseCase {
             return Some(text);
         }
 
-        let tesseract_cmd = std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
+        let tesseract_cmd =
+            std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
         let mut command = Command::new(&tesseract_cmd);
         if let Ok(tessdata_prefix) = std::env::var("TESSDATA_PREFIX") {
             command.env("TESSDATA_PREFIX", tessdata_prefix);
@@ -1405,10 +1402,8 @@ impl RagIngestionUseCase {
             "RAG",
             &format!("Rasterizing PDF with {}", pdftoppm_cmd),
         );
-        let output_dir = std::env::temp_dir().join(format!(
-            "gadogado-ocr-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let output_dir =
+            std::env::temp_dir().join(format!("gadogado-ocr-{}", uuid::Uuid::new_v4()));
         if let Err(err) = fs::create_dir_all(&output_dir) {
             add_log(
                 logs,
@@ -1481,8 +1476,8 @@ impl RagIngestionUseCase {
 
         let mut combined = String::new();
         for image_path in images {
-            let tesseract_cmd = std::env::var("TESSERACT_CMD")
-                .unwrap_or_else(|_| "tesseract".to_string());
+            let tesseract_cmd =
+                std::env::var("TESSERACT_CMD").unwrap_or_else(|_| "tesseract".to_string());
             let mut command = Command::new(&tesseract_cmd);
             if let Ok(tessdata_prefix) = std::env::var("TESSDATA_PREFIX") {
                 command.env("TESSDATA_PREFIX", tessdata_prefix);
@@ -1566,10 +1561,14 @@ impl RagIngestionUseCase {
             Ok((ParsedContent::Plain(None), 1, None))
         } else {
             // DOCX doesn't have reliable page boundary detection, treat as single page
-            Ok((ParsedContent::Pages(vec![PageContent {
-                page_number: 1,
-                content: text.trim().to_string(),
-            }]), 1, None))
+            Ok((
+                ParsedContent::Pages(vec![PageContent {
+                    page_number: 1,
+                    content: text.trim().to_string(),
+                }]),
+                1,
+                None,
+            ))
         }
     }
 
@@ -1581,11 +1580,7 @@ impl RagIngestionUseCase {
         lines.join("\n")
     }
 
-    fn extract_docx_document_child(
-        &self,
-        child: &docx_rs::DocumentChild,
-        lines: &mut Vec<String>,
-    ) {
+    fn extract_docx_document_child(&self, child: &docx_rs::DocumentChild, lines: &mut Vec<String>) {
         match child {
             docx_rs::DocumentChild::Paragraph(paragraph) => {
                 let text = self.extract_docx_paragraph(paragraph);
@@ -1608,11 +1603,7 @@ impl RagIngestionUseCase {
         buffer
     }
 
-    fn extract_docx_paragraph_child(
-        &self,
-        child: &docx_rs::ParagraphChild,
-        buffer: &mut String,
-    ) {
+    fn extract_docx_paragraph_child(&self, child: &docx_rs::ParagraphChild, buffer: &mut String) {
         match child {
             docx_rs::ParagraphChild::Run(run) => {
                 self.extract_docx_run(run, buffer);
@@ -1696,8 +1687,10 @@ impl RagIngestionUseCase {
         file_path: &str,
         logs: &std::sync::Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
     ) -> ParseResult {
-        use calamine::{open_workbook, DataType, Reader, Xlsx};
         use crate::interfaces::http::add_log;
+        use calamine::{open_workbook, DataType, Reader, Xlsx};
+
+        add_log(logs, "INFO", "RAG", "Parsing XLSX file...");
 
         let mut workbook: Xlsx<_> = open_workbook(file_path).map_err(|e| {
             add_log(
@@ -1725,8 +1718,12 @@ impl RagIngestionUseCase {
                 AppError::Internal(format!("Failed to read Excel range: {}", e))
             })?;
 
+        // Convert Excel data to CSV format for preprocessing
+        add_log(logs, "INFO", "RAG", "Converting Excel to CSV for smart preprocessing...");
+
+        let mut csv_lines = Vec::new();
         let mut rows = Vec::new();
-        let mut text_lines = Vec::new();
+
         for row in range.rows() {
             let row_data: Vec<String> = row
                 .iter()
@@ -1736,25 +1733,102 @@ impl RagIngestionUseCase {
                         .unwrap_or_else(|| format!("{}", cell))
                 })
                 .collect();
-            let trimmed_cells: Vec<&str> = row_data
-                .iter()
-                .map(|cell| cell.trim())
-                .filter(|cell| !cell.is_empty())
-                .collect();
-            if !trimmed_cells.is_empty() {
-                text_lines.push(trimmed_cells.join(" | "));
-            }
+
+            // Convert to CSV format
+            let csv_line = row_data.iter()
+                .map(|field| {
+                    // Escape fields containing commas or quotes
+                    let field = field.replace('"', "\"\"");
+                    if field.contains(',') || field.contains('"') || field.contains('\n') {
+                        format!("\"{}\"", field)
+                    } else {
+                        field.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+
+            csv_lines.push(csv_line);
             rows.push(row_data);
         }
 
-        // Excel is single-page, use Plain content type
-        let content = if text_lines.is_empty() {
+        // Join all CSV lines
+        let csv_content = csv_lines.join("\n");
+
+        add_log(
+            logs,
+            "INFO",
+            "RAG",
+            &format!("Excel converted to CSV format ({} rows)", rows.len()),
+        );
+
+        // Use the CSV preprocessor to detect content type and format
+        let preprocessor = CsvPreprocessor::default();
+
+        add_log(logs, "INFO", "RAG", "Running smart content detection on Excel data...");
+
+        let preprocessed = preprocessor.preprocess_csv_content(&csv_content).map_err(|e| {
+            add_log(
+                logs,
+                "ERROR",
+                "RAG",
+                &format!("Failed to preprocess Excel data: {}", e),
+            );
+            AppError::Internal(format!("Failed to preprocess Excel data: {}", e))
+        })?;
+
+        add_log(
+            logs,
+            "INFO",
+            "RAG",
+            &format!(
+                "Excel preprocessing complete:\n\
+                 - Content type: {:?}\n\
+                 - Rows processed: {}\n\
+                 - Avg field length: {:.1} chars\n\
+                 - Lexical diversity: {:.2}\n\
+                 - Confidence: {:.2}",
+                preprocessed.content_type,
+                preprocessed.row_count,
+                preprocessed.analysis.avg_value_length,
+                preprocessed.analysis.lexical_diversity,
+                preprocessed.analysis.confidence_score()
+            ),
+        );
+
+        // Parse rows for Excel data storage (preserve original structure)
+        let excel_rows = self.parse_excel_rows_for_storage(&range);
+
+        // Use the preprocessed text for embedding
+        let parsed_content = if preprocessed.processed_text.trim().is_empty() {
             ParsedContent::Plain(None)
         } else {
-            ParsedContent::Plain(Some(text_lines.join("\n")))
+            ParsedContent::Plain(Some(preprocessed.processed_text))
         };
 
-        Ok((content, 1, Some(rows)))
+        Ok((parsed_content, 1, Some(excel_rows)))
+    }
+
+    /// Parse Excel rows for storage in excel_data table
+    /// This preserves the original Excel structure for structured queries
+    fn parse_excel_rows_for_storage(&self, range: &calamine::Range<calamine::Data>) -> Vec<Vec<String>> {
+        use calamine::DataType;
+
+        let mut rows = Vec::new();
+
+        for row in range.rows() {
+            let row_data: Vec<String> = row
+                .iter()
+                .map(|cell| {
+                    cell.as_string()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("{}", cell))
+                })
+                .collect();
+            rows.push(row_data);
+        }
+
+        rows
     }
 
     fn parse_csv(
@@ -1763,69 +1837,77 @@ impl RagIngestionUseCase {
         logs: &std::sync::Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
     ) -> ParseResult {
         use crate::interfaces::http::add_log;
-        use std::io::BufRead;
 
-        add_log(logs, "INFO", "RAG", "Parsing CSV file...");
+        add_log(logs, "INFO", "RAG", "Preprocessing CSV file...");
 
-        let file = fs::File::open(file_path).map_err(|e| {
+        // Use the new CSV preprocessor
+        let preprocessor = CsvPreprocessor::default();
+
+        // Read file content for preprocessing
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
             add_log(
                 logs,
                 "ERROR",
                 "RAG",
-                &format!("Failed to open CSV file {}: {}", file_path, e),
+                &format!("Failed to read CSV file {}: {}", file_path, e),
             );
-            AppError::Internal(format!("Failed to open CSV file: {}", e))
+            AppError::Internal(format!("Failed to read CSV file: {}", e))
         })?;
 
-        let reader = std::io::BufReader::new(file);
-        let mut rows: Vec<Vec<String>> = Vec::new();
-        let mut text_lines: Vec<String> = Vec::new();
-
-        for (line_num, line_result) in reader.lines().enumerate() {
-            let line = match line_result {
-                Ok(l) => l,
-                Err(e) => {
-                    add_log(
-                        logs,
-                        "WARN",
-                        "RAG",
-                        &format!("Failed to read line {}: {}", line_num + 1, e),
-                    );
-                    continue;
-                }
-            };
-
-            // Simple CSV parsing (handles basic comma-separated values)
-            // For complex CSVs with quoted fields, consider using the csv crate
-            let row_data: Vec<String> = self.parse_csv_line(&line);
-
-            let trimmed_cells: Vec<&str> = row_data
-                .iter()
-                .map(|cell| cell.trim())
-                .filter(|cell| !cell.is_empty())
-                .collect();
-
-            if !trimmed_cells.is_empty() {
-                text_lines.push(trimmed_cells.join(" | "));
-            }
-            rows.push(row_data);
-        }
+        // Preprocess the CSV
+        let preprocessed = preprocessor.preprocess_csv_content(&content).map_err(|e| {
+            add_log(
+                logs,
+                "ERROR",
+                "RAG",
+                &format!("Failed to preprocess CSV: {}", e),
+            );
+            AppError::Internal(format!("Failed to preprocess CSV: {}", e))
+        })?;
 
         add_log(
             logs,
             "INFO",
             "RAG",
-            &format!("Parsed {} rows from CSV", rows.len()),
+            &format!(
+                "CSV preprocessing complete:\n\
+                 - Content type: {:?}\n\
+                 - Rows processed: {}\n\
+                 - Avg field length: {:.1} chars\n\
+                 - Lexical diversity: {:.2}\n\
+                 - Confidence: {:.2}",
+                preprocessed.content_type,
+                preprocessed.row_count,
+                preprocessed.analysis.avg_value_length,
+                preprocessed.analysis.lexical_diversity,
+                preprocessed.analysis.confidence_score()
+            ),
         );
 
-        // CSV is single-page, similar to Excel
-        let content = if text_lines.is_empty() {
+        // Parse rows for Excel data storage
+        let rows = self.parse_csv_rows_for_storage(&content);
+
+        // Use the preprocessed text for embedding
+        let parsed_content = if preprocessed.processed_text.trim().is_empty() {
             ParsedContent::Plain(None)
         } else {
-            ParsedContent::Plain(Some(text_lines.join("\n")))
+            ParsedContent::Plain(Some(preprocessed.processed_text))
         };
 
-        Ok((content, 1, Some(rows)))
+        Ok((parsed_content, 1, Some(rows)))
+    }
+
+    /// Parse CSV rows for storage in excel_data table
+    /// This preserves the original CSV structure for structured queries
+    fn parse_csv_rows_for_storage(&self, content: &str) -> Vec<Vec<String>> {
+        let mut rows = Vec::new();
+
+        for line in content.lines() {
+            let row_data: Vec<String> = self.parse_csv_line(line);
+            rows.push(row_data);
+        }
+
+        rows
     }
 
     /// Parse a single CSV line, handling quoted fields
@@ -1911,12 +1993,7 @@ impl RagIngestionUseCase {
 
         let crawler = WebCrawler::new(max_pages, max_depth);
 
-        add_log(
-            logs,
-            "INFO",
-            "RAG",
-            &format!("Crawling web site: {}", url),
-        );
+        add_log(logs, "INFO", "RAG", &format!("Crawling web site: {}", url));
 
         let pages = crawler
             .crawl_site(url, std::sync::Arc::clone(logs))
@@ -1969,9 +2046,8 @@ impl RagIngestionUseCase {
         let temp_dir = std::env::temp_dir().join("gadogado_web_ocr");
 
         // Ensure temp directory exists
-        std::fs::create_dir_all(&temp_dir).map_err(|e| {
-            AppError::Internal(format!("Failed to create temp directory: {}", e))
-        })?;
+        std::fs::create_dir_all(&temp_dir)
+            .map_err(|e| AppError::Internal(format!("Failed to create temp directory: {}", e)))?;
 
         let ocr_capture = WebOcrCapture::new(script_path, temp_dir);
 
@@ -2036,7 +2112,10 @@ impl RagIngestionUseCase {
                         &logs,
                         "WARN",
                         "RAG",
-                        &format!("Failed to generate embedding for chunk {}: {}", chunk_index, e),
+                        &format!(
+                            "Failed to generate embedding for chunk {}: {}",
+                            chunk_index, e
+                        ),
                     );
                     e
                 })?;
@@ -2050,9 +2129,7 @@ impl RagIngestionUseCase {
                 token_count: Some(chunk.token_count as i64),
             };
 
-            let created_chunk = self.rag_repository
-                .create_chunk(&chunk_input)
-                .await?;
+            let created_chunk = self.rag_repository.create_chunk(&chunk_input).await?;
 
             // Update embedding
             let embedding_bytes = EmbeddingService::embedding_to_bytes(&embedding);
@@ -2146,10 +2223,7 @@ impl RagIngestionUseCase {
         let doc = self.rag_repository.get_document(document_id).await?;
 
         // Get all chunks for the document (use a high limit to get all)
-        let chunks = self
-            .rag_repository
-            .get_chunks(document_id, 10000)
-            .await?;
+        let chunks = self.rag_repository.get_chunks(document_id, 10000).await?;
 
         if chunks.is_empty() {
             return Ok(DocumentQualityAnalysis {
@@ -2255,19 +2329,25 @@ impl RagIngestionUseCase {
         }
 
         // Check for OCR noise patterns (repeated chars, unusual sequences)
-        let has_noise = content.contains("|||") || content.contains("___") || content.contains("...");
+        let has_noise =
+            content.contains("|||") || content.contains("___") || content.contains("...");
         if has_noise {
             score *= 0.7;
         }
 
         // Check for sentence structure (has periods, question marks, etc.)
-        let has_sentence_end = content.contains('.') || content.contains('?') || content.contains('!');
+        let has_sentence_end =
+            content.contains('.') || content.contains('?') || content.contains('!');
         if !has_sentence_end && content.len() > 100 {
             score *= 0.8;
         }
 
         // Check for proper capitalization
-        let first_char_caps = content.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+        let first_char_caps = content
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false);
         if first_char_caps {
             score *= 1.05;
         }

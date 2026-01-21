@@ -1,11 +1,11 @@
-use crate::application::use_cases::prompt_engine::{PromptEngine, VerificationResult};
 use crate::application::use_cases::chunking::{ChunkConfig, ChunkEngine, ChunkStrategy};
+use crate::application::use_cases::prompt_engine::{PromptEngine, VerificationResult};
+use crate::application::use_cases::rag_analytics::{AnalyticsEvent, AnalyticsSummary};
 use crate::application::use_cases::rag_config::{
-    CacheConfig, ChatConfig, ChunkingConfig, ConfigValidation, EmbeddingConfig,
-    FeedbackRating, FeedbackStats, OcrConfig, RagConfig, RetrievalConfig, UserFeedback,
+    CacheConfig, ChatConfig, ChunkingConfig, ConfigValidation, EmbeddingConfig, FeedbackRating,
+    FeedbackStats, OcrConfig, RagConfig, RetrievalConfig, UserFeedback,
 };
 use crate::application::use_cases::rag_ingestion::OcrResult;
-use crate::application::use_cases::rag_analytics::{AnalyticsEvent, AnalyticsSummary};
 use crate::application::use_cases::rag_validation::{
     RagValidationSuite, ValidationCase, ValidationOptions, ValidationReport,
 };
@@ -217,10 +217,7 @@ pub async fn rag_get_document(
 }
 
 #[tauri::command]
-pub async fn rag_delete_document(
-    state: State<'_, Arc<super::AppState>>,
-    id: i64,
-) -> Result<u64> {
+pub async fn rag_delete_document(state: State<'_, Arc<super::AppState>>, id: i64) -> Result<u64> {
     add_log(
         &state.logs,
         "INFO",
@@ -228,15 +225,19 @@ pub async fn rag_delete_document(
         &format!("Deleting document: {}", id),
     );
 
-    let rows = state.rag_repository.delete_document(id).await.map_err(|e| {
-        add_log(
-            &state.logs,
-            "ERROR",
-            "RAG",
-            &format!("Failed to delete document: {}", e),
-        );
-        e
-    })?;
+    let rows = state
+        .rag_repository
+        .delete_document(id)
+        .await
+        .map_err(|e| {
+            add_log(
+                &state.logs,
+                "ERROR",
+                "RAG",
+                &format!("Failed to delete document: {}", e),
+            );
+            e
+        })?;
 
     add_log(
         &state.logs,
@@ -303,9 +304,11 @@ pub async fn rag_import_file(
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("unknown");
-    state
-        .analytics_logger
-        .log_extraction(doc_type, result.is_ok(), start.elapsed().as_millis() as u64);
+    state.analytics_logger.log_extraction(
+        doc_type,
+        result.is_ok(),
+        start.elapsed().as_millis() as u64,
+    );
 
     result
 }
@@ -424,7 +427,10 @@ pub async fn rag_query(
         .await;
     match chunks {
         Ok(chunks) => {
-            let embedded_count = chunks.iter().filter(|chunk| chunk.embedding.is_some()).count();
+            let embedded_count = chunks
+                .iter()
+                .filter(|chunk| chunk.embedding.is_some())
+                .count();
             add_log(
                 &state.logs,
                 "INFO",
@@ -535,9 +541,11 @@ pub async fn rag_import_web(
                     e
                 });
 
-            state
-                .analytics_logger
-                .log_extraction("web", result.is_ok(), start.elapsed().as_millis() as u64);
+            state.analytics_logger.log_extraction(
+                "web",
+                result.is_ok(),
+                start.elapsed().as_millis() as u64,
+            );
             result
         }
         WebCrawlMode::Ocr => {
@@ -673,7 +681,10 @@ pub async fn rag_hybrid_retrieval(
         &state.logs,
         "INFO",
         "RAG",
-        &format!("Hybrid retrieval in collection {}: {}", collection_id, query),
+        &format!(
+            "Hybrid retrieval in collection {}: {}",
+            collection_id, query
+        ),
     );
 
     let start = Instant::now();
@@ -686,10 +697,7 @@ pub async fn rag_hybrid_retrieval(
         .as_ref()
         .and_then(|o| o.use_cache)
         .unwrap_or(config.cache.enabled);
-    let optimized = options
-        .as_ref()
-        .and_then(|o| o.optimized)
-        .unwrap_or(true);
+    let optimized = options.as_ref().and_then(|o| o.optimized).unwrap_or(true);
 
     if use_cache {
         let (mut results, cache_hit) = state
@@ -830,13 +838,13 @@ pub async fn rag_get_recent_analytics(
         "RAG",
         &format!("Fetching {} analytics events", limit),
     );
-    Ok(state.analytics_logger.recent_events_by_collection(limit, collection_id))
+    Ok(state
+        .analytics_logger
+        .recent_events_by_collection(limit, collection_id))
 }
 
 #[tauri::command]
-pub async fn rag_clear_analytics(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<String> {
+pub async fn rag_clear_analytics(state: State<'_, Arc<super::AppState>>) -> Result<String> {
     add_log(&state.logs, "INFO", "RAG", "Clearing analytics events");
     state.analytics_logger.clear();
     Ok("Analytics cleared successfully".to_string())
@@ -949,15 +957,16 @@ pub async fn rag_chat_with_context(
         (prompt, summary)
     } else {
         // Use reflective prompt for better quality
-        let prompt = PromptEngine::build_reflective_prompt(&request.query, &results).map_err(|e| {
-            add_log(
-                &state.logs,
-                "ERROR",
-                "RAG",
-                &format!("Prompt building failed: {}", e),
-            );
-            e
-        })?;
+        let prompt =
+            PromptEngine::build_reflective_prompt(&request.query, &results).map_err(|e| {
+                add_log(
+                    &state.logs,
+                    "ERROR",
+                    "RAG",
+                    &format!("Prompt building failed: {}", e),
+                );
+                e
+            })?;
 
         (prompt, None)
     };
@@ -1085,9 +1094,7 @@ pub struct CacheHealth {
 }
 
 #[tauri::command]
-pub async fn rag_health_check(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<HealthReport> {
+pub async fn rag_health_check(state: State<'_, Arc<super::AppState>>) -> Result<HealthReport> {
     add_log(&state.logs, "INFO", "RAG", "Running health check");
 
     // Check database
@@ -1114,7 +1121,10 @@ pub async fn rag_health_check(
     // Embedding service is considered healthy if it exists
     let embedding_health = ComponentHealth {
         status: "healthy".to_string(),
-        message: Some(format!("Cache: {}/{} entries", cache_stats.valid_entries, cache_stats.max_size)),
+        message: Some(format!(
+            "Cache: {}/{} entries",
+            cache_stats.valid_entries, cache_stats.max_size
+        )),
     };
 
     // Overall status
@@ -1137,9 +1147,7 @@ pub async fn rag_health_check(
 
 /// Clear embedding cache
 #[tauri::command]
-pub async fn rag_clear_cache(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<String> {
+pub async fn rag_clear_cache(state: State<'_, Arc<super::AppState>>) -> Result<String> {
     add_log(&state.logs, "INFO", "RAG", "Clearing embedding cache");
 
     state.embedding_service.clear_cache();
@@ -1161,8 +1169,8 @@ fn truncate_message(text: &str, max_len: usize) -> String {
 // ============================================================
 
 use crate::application::use_cases::rag_metrics::{
-    AggregatedMetrics, DocumentQualityMetrics, DocumentQualitySummary,
-    ExperimentConfig, RagOperationMetrics,
+    AggregatedMetrics, DocumentQualityMetrics, DocumentQualitySummary, ExperimentConfig,
+    RagOperationMetrics,
 };
 use crate::application::use_cases::retrieval_service::RetrievalCacheStats;
 
@@ -1200,7 +1208,10 @@ pub async fn rag_record_document_quality(
         &state.logs,
         "INFO",
         "RAG",
-        &format!("Recording quality metrics for document: {}", metrics.document_name),
+        &format!(
+            "Recording quality metrics for document: {}",
+            metrics.document_name
+        ),
     );
 
     state.metrics_collector.record_document_quality(metrics);
@@ -1218,9 +1229,7 @@ pub async fn rag_get_document_quality_summary(
 
 /// Clear all RAG metrics
 #[tauri::command]
-pub async fn rag_clear_metrics(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<String> {
+pub async fn rag_clear_metrics(state: State<'_, Arc<super::AppState>>) -> Result<String> {
     add_log(&state.logs, "INFO", "RAG", "Clearing RAG metrics");
     state.metrics_collector.clear();
     Ok("Metrics cleared successfully".to_string())
@@ -1237,9 +1246,7 @@ pub async fn rag_get_retrieval_cache_stats(
 
 /// Clear retrieval cache
 #[tauri::command]
-pub async fn rag_clear_retrieval_cache(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<String> {
+pub async fn rag_clear_retrieval_cache(state: State<'_, Arc<super::AppState>>) -> Result<String> {
     add_log(&state.logs, "INFO", "RAG", "Clearing retrieval cache");
     state.retrieval_service.clear_cache();
     Ok("Retrieval cache cleared successfully".to_string())
@@ -1257,8 +1264,13 @@ pub async fn rag_invalidate_collection_cache(
         "RAG",
         &format!("Invalidating cache for collection: {}", collection_id),
     );
-    state.retrieval_service.invalidate_collection_cache(collection_id);
-    Ok(format!("Cache invalidated for collection {}", collection_id))
+    state
+        .retrieval_service
+        .invalidate_collection_cache(collection_id);
+    Ok(format!(
+        "Cache invalidated for collection {}",
+        collection_id
+    ))
 }
 
 /// Register a new A/B experiment
@@ -1294,14 +1306,19 @@ pub async fn rag_assign_experiment_variant(
     session_id: String,
     experiment_id: String,
 ) -> Result<Option<String>> {
-    let variant = state.experiment_manager.assign_variant(&session_id, &experiment_id);
+    let variant = state
+        .experiment_manager
+        .assign_variant(&session_id, &experiment_id);
 
     if let Some(ref v) = variant {
         add_log(
             &state.logs,
             "INFO",
             "RAG",
-            &format!("Assigned session {} to variant {} in experiment {}", session_id, v, experiment_id),
+            &format!(
+                "Assigned session {} to variant {} in experiment {}",
+                session_id, v, experiment_id
+            ),
         );
     }
 
@@ -1321,15 +1338,15 @@ pub async fn rag_deactivate_experiment(
         &format!("Deactivating experiment: {}", experiment_id),
     );
 
-    state.experiment_manager.deactivate_experiment(&experiment_id);
+    state
+        .experiment_manager
+        .deactivate_experiment(&experiment_id);
     Ok(format!("Experiment {} deactivated", experiment_id))
 }
 
 /// Get system uptime and overall metrics
 #[tauri::command]
-pub async fn rag_get_system_stats(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<SystemStats> {
+pub async fn rag_get_system_stats(state: State<'_, Arc<super::AppState>>) -> Result<SystemStats> {
     let metrics = state.metrics_collector.get_aggregated_metrics(60);
     let embedding_cache = state.embedding_service.cache_stats();
     let retrieval_cache = state.retrieval_service.cache_stats();
@@ -1400,9 +1417,7 @@ pub async fn rag_analyze_document_quality(
 
 /// Get current RAG configuration
 #[tauri::command]
-pub async fn rag_get_config(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<RagConfig> {
+pub async fn rag_get_config(state: State<'_, Arc<super::AppState>>) -> Result<RagConfig> {
     add_log(&state.logs, "INFO", "RAG", "Getting RAG configuration");
     let config = state.config_manager.get_config();
     Ok(config)
@@ -1428,7 +1443,12 @@ pub async fn rag_update_config(
                 &format!("Failed to save config: {}", e),
             );
         }
-        add_log(&state.logs, "INFO", "RAG", "Configuration updated successfully");
+        add_log(
+            &state.logs,
+            "INFO",
+            "RAG",
+            "Configuration updated successfully",
+        );
     } else {
         add_log(
             &state.logs,
@@ -1447,7 +1467,12 @@ pub async fn rag_update_chunking_config(
     state: State<'_, Arc<super::AppState>>,
     config: ChunkingConfig,
 ) -> Result<String> {
-    add_log(&state.logs, "INFO", "RAG", "Updating chunking configuration");
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        "Updating chunking configuration",
+    );
     state.config_manager.update_chunking(config);
     let _ = state.config_manager.save();
     Ok("Chunking configuration updated".to_string())
@@ -1459,7 +1484,12 @@ pub async fn rag_update_retrieval_config(
     state: State<'_, Arc<super::AppState>>,
     config: RetrievalConfig,
 ) -> Result<String> {
-    add_log(&state.logs, "INFO", "RAG", "Updating retrieval configuration");
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        "Updating retrieval configuration",
+    );
     state.config_manager.update_retrieval(config);
     let _ = state.config_manager.save();
     Ok("Retrieval configuration updated".to_string())
@@ -1471,7 +1501,12 @@ pub async fn rag_update_embedding_config(
     state: State<'_, Arc<super::AppState>>,
     config: EmbeddingConfig,
 ) -> Result<String> {
-    add_log(&state.logs, "INFO", "RAG", "Updating embedding configuration");
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        "Updating embedding configuration",
+    );
     state.config_manager.update_embedding(config);
     let _ = state.config_manager.save();
     Ok("Embedding configuration updated".to_string())
@@ -1515,10 +1550,13 @@ pub async fn rag_update_chat_config(
 
 /// Reset RAG configuration to defaults
 #[tauri::command]
-pub async fn rag_reset_config(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<RagConfig> {
-    add_log(&state.logs, "INFO", "RAG", "Resetting RAG configuration to defaults");
+pub async fn rag_reset_config(state: State<'_, Arc<super::AppState>>) -> Result<RagConfig> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        "Resetting RAG configuration to defaults",
+    );
     state.config_manager.reset_to_defaults();
     let _ = state.config_manager.save();
     let config = state.config_manager.get_config();
@@ -1590,15 +1628,15 @@ pub async fn rag_get_recent_feedback(
     state: State<'_, Arc<super::AppState>>,
     limit: Option<usize>,
 ) -> Result<Vec<UserFeedback>> {
-    let feedback = state.feedback_collector.get_recent_feedback(limit.unwrap_or(20));
+    let feedback = state
+        .feedback_collector
+        .get_recent_feedback(limit.unwrap_or(20));
     Ok(feedback)
 }
 
 /// Clear all feedback
 #[tauri::command]
-pub async fn rag_clear_feedback(
-    state: State<'_, Arc<super::AppState>>,
-) -> Result<String> {
+pub async fn rag_clear_feedback(state: State<'_, Arc<super::AppState>>) -> Result<String> {
     add_log(&state.logs, "INFO", "RAG", "Clearing user feedback");
     state.feedback_collector.clear();
     Ok("Feedback cleared successfully".to_string())
@@ -1704,8 +1742,15 @@ pub async fn rag_update_chunk_content(
         .await?;
 
     // Regenerate embedding for the updated content
-    if let Ok(embedding) = state.embedding_service.generate_embedding(&new_content).await {
-        let embedding_bytes = crate::application::use_cases::embedding_service::EmbeddingService::embedding_to_bytes(&embedding);
+    if let Ok(embedding) = state
+        .embedding_service
+        .generate_embedding(&new_content)
+        .await
+    {
+        let embedding_bytes =
+            crate::application::use_cases::embedding_service::EmbeddingService::embedding_to_bytes(
+                &embedding,
+            );
         let _ = state
             .rag_repository
             .update_chunk_embedding(chunk_id, &embedding_bytes)
@@ -1739,13 +1784,200 @@ pub async fn rag_reembed_chunk(
             crate::domain::error::AppError::Internal(format!("Embedding failed: {}", e))
         })?;
 
-    let embedding_bytes = crate::application::use_cases::embedding_service::EmbeddingService::embedding_to_bytes(&embedding);
+    let embedding_bytes =
+        crate::application::use_cases::embedding_service::EmbeddingService::embedding_to_bytes(
+            &embedding,
+        );
     state
         .rag_repository
         .update_chunk_embedding(chunk_id, &embedding_bytes)
         .await?;
 
     Ok("Chunk re-embedded successfully".to_string())
+}
+
+/// Re-index all chunks in a document with the new embedding model
+#[tauri::command]
+pub async fn rag_reindex_document(
+    state: State<'_, Arc<super::AppState>>,
+    document_id: i64,
+) -> Result<ReindexProgress> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!("Re-indexing document: {}", document_id),
+    );
+
+    // Get all chunks for the document
+    let chunks = state
+        .rag_repository
+        .get_chunks(document_id, 100000)
+        .await?;
+
+    let total_chunks = chunks.len();
+    let mut success_count = 0;
+    let mut failed_count = 0;
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!(
+            "Re-indexing {} chunks for document {} with new model",
+            total_chunks, document_id
+        ),
+    );
+
+    for (index, chunk) in chunks.iter().enumerate() {
+        match state
+            .embedding_service
+            .generate_embedding(&chunk.content)
+            .await
+        {
+            Ok(embedding) => {
+                let embedding_bytes = crate::application::use_cases::embedding_service::EmbeddingService::embedding_to_bytes(
+                    &embedding,
+                );
+                if state
+                    .rag_repository
+                    .update_chunk_embedding(chunk.id, &embedding_bytes)
+                    .await
+                    .is_ok()
+                {
+                    success_count += 1;
+                } else {
+                    failed_count += 1;
+                }
+            }
+            Err(e) => {
+                add_log(
+                    &state.logs,
+                    "WARN",
+                    "RAG",
+                    &format!("Failed to embed chunk {}: {}", chunk.id, e),
+                );
+                failed_count += 1;
+            }
+        }
+
+        // Log progress every 10 chunks
+        if (index + 1) % 10 == 0 {
+            add_log(
+                &state.logs,
+                "INFO",
+                "RAG",
+                &format!(
+                    "Re-indexing progress: {}/{} chunks processed",
+                    index + 1,
+                    total_chunks
+                ),
+            );
+        }
+    }
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!(
+            "Document {} re-index complete: {} succeeded, {} failed",
+            document_id, success_count, failed_count
+        ),
+    );
+
+    Ok(ReindexProgress {
+        document_id,
+        total_chunks: total_chunks as i64,
+        processed_chunks: (success_count + failed_count) as i64,
+        success_count: success_count as i64,
+        failed_count: failed_count as i64,
+        current_dimension: state.embedding_service.get_current_dimension(),
+    })
+}
+
+/// Re-index all documents in a collection
+#[tauri::command]
+pub async fn rag_reindex_collection(
+    state: State<'_, Arc<super::AppState>>,
+    collection_id: i64,
+) -> Result<CollectionReindexResult> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!("Re-indexing collection: {}", collection_id),
+    );
+
+    let documents = state
+        .rag_repository
+        .list_documents(Some(collection_id), 100000)
+        .await?;
+
+    let mut document_results = Vec::new();
+    let mut total_chunks = 0;
+    let mut total_success = 0;
+    let mut total_failed = 0;
+
+    for doc in &documents {
+        match rag_reindex_document(state.clone(), doc.id).await {
+            Ok(progress) => {
+                total_chunks += progress.total_chunks;
+                total_success += progress.success_count;
+                total_failed += progress.failed_count;
+                document_results.push(progress);
+            }
+            Err(e) => {
+                add_log(
+                    &state.logs,
+                    "WARN",
+                    "RAG",
+                    &format!("Failed to re-index document {}: {}", doc.id, e),
+                );
+            }
+        }
+    }
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!(
+            "Collection {} re-index complete: {}/{} chunks successful",
+            collection_id,
+            total_success,
+            total_chunks
+        ),
+    );
+
+    Ok(CollectionReindexResult {
+        collection_id,
+        total_documents: documents.len() as i64,
+        document_results,
+        total_chunks,
+        total_success,
+        total_failed,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReindexProgress {
+    pub document_id: i64,
+    pub total_chunks: i64,
+    pub processed_chunks: i64,
+    pub success_count: i64,
+    pub failed_count: i64,
+    pub current_dimension: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CollectionReindexResult {
+    pub collection_id: i64,
+    pub total_documents: i64,
+    pub document_results: Vec<ReindexProgress>,
+    pub total_chunks: i64,
+    pub total_success: i64,
+    pub total_failed: i64,
 }
 
 /// Filter chunks by quality threshold
@@ -1794,7 +2026,8 @@ fn estimate_chunk_quality(content: &str) -> f32 {
 
     // Content quality indicators
     let has_alphanumeric = content.chars().any(|c| c.is_alphanumeric());
-    let alpha_ratio = content.chars().filter(|c| c.is_alphabetic()).count() as f32 / len.max(1) as f32;
+    let alpha_ratio =
+        content.chars().filter(|c| c.is_alphabetic()).count() as f32 / len.max(1) as f32;
     let has_sentences = content.contains('.') || content.contains('!') || content.contains('?');
     let has_capital = content.chars().any(|c| c.is_uppercase());
 
@@ -1836,9 +2069,7 @@ fn average_score(results: &[crate::application::QueryResult]) -> Option<f32> {
 // CONVERSATION PERSISTENCE
 // ============================================================
 
-use crate::application::use_cases::conversation_service::{
-    Conversation, ConversationMessage,
-};
+use crate::application::use_cases::conversation_service::{Conversation, ConversationMessage};
 
 /// Create a new conversation
 #[tauri::command]
@@ -1851,10 +2082,7 @@ pub async fn rag_create_conversation(
         &state.logs,
         "INFO",
         "RAG",
-        &format!(
-            "Creating conversation for collection: {:?}",
-            collection_id
-        ),
+        &format!("Creating conversation for collection: {:?}", collection_id),
     );
 
     state
@@ -1999,7 +2227,8 @@ pub async fn rag_delete_conversation(
 // ============================================================
 
 use crate::domain::rag_entities::{
-    CollectionQualityMetrics, DocumentWarning, DocumentWarningInput, RetrievalGap, RetrievalGapInput,
+    CollectionQualityMetrics, DocumentWarning, DocumentWarningInput, RetrievalGap,
+    RetrievalGapInput,
 };
 
 /// Get collection quality metrics
@@ -2096,7 +2325,10 @@ pub async fn rag_create_document_warning(
         &state.logs,
         "INFO",
         "RAG",
-        &format!("Creating warning for document {}: {}", input.doc_id, input.warning_type),
+        &format!(
+            "Creating warning for document {}: {}",
+            input.doc_id, input.warning_type
+        ),
     );
 
     state
@@ -2129,7 +2361,10 @@ pub async fn rag_get_low_quality_documents(
         &state.logs,
         "INFO",
         "RAG",
-        &format!("Getting low quality documents (threshold: {}) for collection {}", threshold, collection_id),
+        &format!(
+            "Getting low quality documents (threshold: {}) for collection {}",
+            threshold, collection_id
+        ),
     );
 
     state
@@ -2157,7 +2392,10 @@ pub async fn rag_record_retrieval_gap(
         &state.logs,
         "INFO",
         "RAG",
-        &format!("Recording retrieval gap for collection {}", input.collection_id),
+        &format!(
+            "Recording retrieval gap for collection {}",
+            input.collection_id
+        ),
     );
 
     state
@@ -2204,4 +2442,210 @@ pub async fn rag_get_retrieval_gaps(
             );
             e
         })
+}
+
+// ============================================================
+// CSV PREPROCESSING COMMANDS
+// ============================================================
+
+use crate::application::use_cases::csv_preprocessor::CsvPreprocessor;
+use crate::domain::csv::PreprocessingConfig;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvPreprocessingRequest {
+    pub file_path: String,
+    pub config: Option<CsvPreprocessingRequestConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvPreprocessingRequestConfig {
+    pub min_value_length_threshold: Option<usize>,
+    pub min_lexical_diversity: Option<f32>,
+    pub max_numeric_ratio: Option<f32>,
+    pub min_sample_rows: Option<usize>,
+    pub max_sample_rows: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CsvPreprocessingResponse {
+    pub content_type: String,
+    pub processed_text: String,
+    pub row_count: usize,
+    pub analysis: CsvFieldAnalysis,
+    pub headers: Vec<String>,
+    pub processing_time_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CsvFieldAnalysis {
+    pub avg_value_length: f32,
+    pub lexical_diversity: f32,
+    pub total_fields: usize,
+    pub numeric_ratio: f32,
+    pub row_count: usize,
+    pub empty_field_count: usize,
+    pub max_value_length: usize,
+    pub min_value_length: usize,
+    pub confidence_score: f32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CsvPreviewRow {
+    pub index: usize,
+    pub content: String,
+}
+
+/// Preprocess a CSV file for RAG ingestion
+#[tauri::command]
+pub async fn csv_preprocess_file(
+    state: State<'_, Arc<super::AppState>>,
+    request: CsvPreprocessingRequest,
+) -> Result<CsvPreprocessingResponse> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!("Starting CSV preprocessing: {}", request.file_path),
+    );
+
+    let config = if let Some(req_config) = request.config {
+        PreprocessingConfig {
+            min_value_length_threshold: req_config.min_value_length_threshold
+                .unwrap_or(PreprocessingConfig::default().min_value_length_threshold),
+            min_lexical_diversity: req_config.min_lexical_diversity
+                .unwrap_or(PreprocessingConfig::default().min_lexical_diversity),
+            max_numeric_ratio: req_config.max_numeric_ratio
+                .unwrap_or(PreprocessingConfig::default().max_numeric_ratio),
+            min_sample_rows: req_config.min_sample_rows
+                .unwrap_or(PreprocessingConfig::default().min_sample_rows),
+            max_sample_rows: req_config.max_sample_rows
+                .unwrap_or(PreprocessingConfig::default().max_sample_rows),
+            ..PreprocessingConfig::default()
+        }
+    } else {
+        PreprocessingConfig::default()
+    };
+
+    let preprocessor = CsvPreprocessor::new(config);
+    let path = Path::new(&request.file_path);
+
+    let preprocessed = preprocessor.preprocess_csv(path).await.map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Preprocessing failed: {}", e),
+        );
+        e
+    })?;
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!(
+            "Preprocessing complete: {} rows, {:?} type, {:.2} confidence",
+            preprocessed.row_count,
+            preprocessed.content_type,
+            preprocessed.analysis.confidence_score()
+        ),
+    );
+
+    Ok(CsvPreprocessingResponse {
+        content_type: format!("{:?}", preprocessed.content_type),
+        processed_text: preprocessed.processed_text,
+        row_count: preprocessed.row_count,
+        analysis: CsvFieldAnalysis {
+            avg_value_length: preprocessed.analysis.avg_value_length,
+            lexical_diversity: preprocessed.analysis.lexical_diversity,
+            total_fields: preprocessed.analysis.total_fields,
+            numeric_ratio: preprocessed.analysis.numeric_ratio,
+            row_count: preprocessed.analysis.row_count,
+            empty_field_count: preprocessed.analysis.empty_field_count,
+            max_value_length: preprocessed.analysis.max_value_length,
+            min_value_length: preprocessed.analysis.min_value_length,
+            confidence_score: preprocessed.analysis.confidence_score(),
+        },
+        headers: preprocessed.headers,
+        processing_time_ms: preprocessed.processing_time_ms,
+    })
+}
+
+/// Preview first N rows of preprocessed CSV
+#[tauri::command]
+pub async fn csv_preview_rows(
+    state: State<'_, Arc<super::AppState>>,
+    file_path: String,
+    preview_count: usize,
+) -> Result<Vec<CsvPreviewRow>> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!("Previewing {} rows from: {}", preview_count, file_path),
+    );
+
+    let preprocessor = CsvPreprocessor::default();
+    let content = std::fs::read_to_string(&file_path).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Failed to read file: {}", e),
+        );
+        crate::domain::error::AppError::IoError(format!("Failed to read file: {}", e))
+    })?;
+
+    let preview = preprocessor.preview_rows(&content, preview_count).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Preview failed: {}", e),
+        );
+        e
+    })?;
+
+    Ok(preview
+        .into_iter()
+        .enumerate()
+        .map(|(index, content)| CsvPreviewRow { index, content })
+        .collect())
+}
+
+/// Analyze CSV without full preprocessing
+#[tauri::command]
+pub async fn csv_analyze(
+    state: State<'_, Arc<super::AppState>>,
+    file_path: String,
+) -> Result<String> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "CSV",
+        &format!("Analyzing CSV: {}", file_path),
+    );
+
+    let preprocessor = CsvPreprocessor::default();
+    let content = std::fs::read_to_string(&file_path).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Failed to read file: {}", e),
+        );
+        crate::domain::error::AppError::IoError(format!("Failed to read file: {}", e))
+    })?;
+
+    let report = preprocessor.analyze_csv(&content).map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "CSV",
+            &format!("Analysis failed: {}", e),
+        );
+        e
+    })?;
+
+    Ok(report)
 }

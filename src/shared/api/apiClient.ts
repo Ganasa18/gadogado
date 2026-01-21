@@ -14,7 +14,7 @@ export interface LogEntry {
   message: string;
 }
 
-export type LlmProviderLabel = 'Local' | 'OpenAI' | 'Google' | 'DLL';
+export type LlmProviderLabel = 'local' | 'openai' | 'gemini' | 'ollama' | 'llama_cpp' | 'dll';
 
 export interface LlmConfig {
   provider: LlmProviderLabel;

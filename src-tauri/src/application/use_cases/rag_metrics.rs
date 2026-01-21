@@ -552,9 +552,7 @@ impl ExperimentManager {
         self.experiments
             .values()
             .filter(|e| {
-                e.active
-                    && e.start_time <= now
-                    && e.end_time.map(|end| end > now).unwrap_or(true)
+                e.active && e.start_time <= now && e.end_time.map(|end| end > now).unwrap_or(true)
             })
             .collect()
     }
@@ -578,7 +576,11 @@ impl ExperimentManager {
         let mut rng_seed = session_id
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
-        rng_seed = rng_seed.wrapping_mul(experiment_id.bytes().fold(1u64, |acc, b| acc.wrapping_mul(b as u64 + 1)));
+        rng_seed = rng_seed.wrapping_mul(
+            experiment_id
+                .bytes()
+                .fold(1u64, |acc, b| acc.wrapping_mul(b as u64 + 1)),
+        );
 
         let random_val = (rng_seed % 10000) as f32 / 10000.0;
         let mut cumulative = 0.0;

@@ -146,7 +146,7 @@ export const useSettingsStore = create<SettingsState>()(
       provider: "local",
       model: "local-model",
       apiKey: "",
-      baseUrl: "https://api.openai.com/v1",
+      baseUrl: PROVIDER_BASE_URLS.local,
       localModels: [],
       embeddingProvider: "local",
       embeddingModel: "all-minilm-l6-v2",

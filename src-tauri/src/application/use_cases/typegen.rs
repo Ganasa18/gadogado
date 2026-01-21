@@ -34,9 +34,8 @@ impl TypeGenUseCase {
             )));
         }
 
-        let parsed: Value = serde_json::from_str(&sanitized).map_err(|e| {
-            AppError::ValidationError(format!("Invalid JSON input: {}", e))
-        })?;
+        let parsed: Value = serde_json::from_str(&sanitized)
+            .map_err(|e| AppError::ValidationError(format!("Invalid JSON input: {}", e)))?;
         let schema = infer_schema(&parsed);
 
         let pretty_json = serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| sanitized);
@@ -49,19 +48,15 @@ impl TypeGenUseCase {
 
         match mode {
             TypeGenMode::Offline => generate_offline(&schema, &root, &language),
-            TypeGenMode::Llm => {
-                generate_llm(self, config, &pretty_json, &language, &root).await
-            }
+            TypeGenMode::Llm => generate_llm(self, config, &pretty_json, &language, &root).await,
             TypeGenMode::Auto => {
                 let llm_result = generate_llm(self, config, &pretty_json, &language, &root).await;
                 match llm_result {
                     Ok(result) => Ok(result),
-                    Err(llm_err) => {
-                        match generate_offline(&schema, &root, &language) {
-                            Ok(result) => Ok(result),
-                            Err(_) => Err(llm_err),
-                        }
-                    }
+                    Err(llm_err) => match generate_offline(&schema, &root, &language) {
+                        Ok(result) => Ok(result),
+                        Err(_) => Err(llm_err),
+                    },
                 }
             }
         }
@@ -300,7 +295,12 @@ impl TypeNameRegistry {
         in_array: bool,
         language: TargetLanguage,
     ) -> String {
-        let id = format!("{}::{}::{}", parent, key, if in_array { "item" } else { "obj" });
+        let id = format!(
+            "{}::{}::{}",
+            parent,
+            key,
+            if in_array { "item" } else { "obj" }
+        );
         if let Some(name) = self.assigned.get(&id) {
             return name.clone();
         }
@@ -346,9 +346,9 @@ impl TypeRenderer {
             }
             _ => {
                 if let Some((object_schema, in_array)) = find_object_schema(schema, false) {
-                    let nested_name = self
-                        .registry
-                        .name_for_field(root_name, type_key, in_array, self.language);
+                    let nested_name =
+                        self.registry
+                            .name_for_field(root_name, type_key, in_array, self.language);
                     self.emit_object(object_schema, &nested_name);
                 }
                 let root_alias = self.render_root_alias(schema, root_name, type_key);
@@ -461,10 +461,7 @@ impl TypeRenderer {
         let mut lines = vec![format!("type {} struct {{", name)];
         let mut used = HashSet::new();
         for (key, schema) in fields {
-            let field_name = unique_name(
-                sanitize_identifier(key, self.language),
-                &mut used,
-            );
+            let field_name = unique_name(sanitize_identifier(key, self.language), &mut used);
             let field_type = self.go_type(schema, name, key, false);
             let tag = format!("`json:\"{}\"`", escape_string(key));
             lines.push(format!("    {} {} {}", field_name, field_type, tag));
@@ -481,10 +478,7 @@ impl TypeRenderer {
         ];
         let mut used = HashSet::new();
         for (key, schema) in fields {
-            let field_name = unique_name(
-                sanitize_identifier(key, self.language),
-                &mut used,
-            );
+            let field_name = unique_name(sanitize_identifier(key, self.language), &mut used);
             if field_name != *key {
                 lines.push(format!("    #[serde(rename = \"{}\")]", escape_string(key)));
             }
@@ -515,10 +509,7 @@ impl TypeRenderer {
         let mut lines = vec![format!("class {} {{", name)];
         let mut used = HashSet::new();
         for (key, schema) in fields {
-            let field_name = unique_name(
-                sanitize_identifier(key, self.language),
-                &mut used,
-            );
+            let field_name = unique_name(sanitize_identifier(key, self.language), &mut used);
             if field_name != *key {
                 lines.push(format!("  // json: \"{}\"", escape_string(key)));
             }
@@ -538,10 +529,7 @@ impl TypeRenderer {
         let mut lines = vec![format!("class {} {{", name)];
         let mut used = HashSet::new();
         for (key, schema) in fields {
-            let field_name = unique_name(
-                sanitize_identifier(key, self.language),
-                &mut used,
-            );
+            let field_name = unique_name(sanitize_identifier(key, self.language), &mut used);
             if field_name != *key {
                 lines.push(format!("  // json: \"{}\"", escape_string(key)));
             }
@@ -556,10 +544,7 @@ impl TypeRenderer {
         let mut lines = vec![format!("class {} {{", name)];
         let mut used = HashSet::new();
         for (key, schema) in fields {
-            let field_name = unique_name(
-                sanitize_identifier(key, self.language),
-                &mut used,
-            );
+            let field_name = unique_name(sanitize_identifier(key, self.language), &mut used);
             if field_name != *key {
                 lines.push(format!("  // json: \"{}\"", escape_string(key)));
             }
@@ -581,9 +566,10 @@ impl TypeRenderer {
                 let inner_type = self.go_type(inner, parent, key, true);
                 format!("[]{}", inner_type)
             }
-            SchemaKind::Object(_) => self
-                .registry
-                .name_for_field(parent, key, in_array, self.language),
+            SchemaKind::Object(_) => {
+                self.registry
+                    .name_for_field(parent, key, in_array, self.language)
+            }
         };
 
         if schema.nullable && base != "interface{}" {
@@ -607,9 +593,10 @@ impl TypeRenderer {
                 let inner_type = self.rust_type(inner, parent, key, true);
                 format!("Vec<{}>", inner_type)
             }
-            SchemaKind::Object(_) => self
-                .registry
-                .name_for_field(parent, key, in_array, self.language),
+            SchemaKind::Object(_) => {
+                self.registry
+                    .name_for_field(parent, key, in_array, self.language)
+            }
         };
 
         if schema.nullable {
@@ -634,9 +621,10 @@ impl TypeRenderer {
                 };
                 format!("{}[]", inner_type)
             }
-            SchemaKind::Object(_) => self
-                .registry
-                .name_for_field(parent, key, in_array, self.language),
+            SchemaKind::Object(_) => {
+                self.registry
+                    .name_for_field(parent, key, in_array, self.language)
+            }
         };
 
         if schema.nullable {
@@ -656,9 +644,10 @@ impl TypeRenderer {
                 let inner_type = self.dart_type(inner, parent, key, true);
                 format!("List<{}>", inner_type)
             }
-            SchemaKind::Object(_) => self
-                .registry
-                .name_for_field(parent, key, in_array, self.language),
+            SchemaKind::Object(_) => {
+                self.registry
+                    .name_for_field(parent, key, in_array, self.language)
+            }
         };
 
         if schema.nullable && base != "dynamic" {
@@ -697,9 +686,10 @@ impl TypeRenderer {
                 let inner_type = self.java_type(inner, parent, key, true);
                 format!("List<{}>", inner_type)
             }
-            SchemaKind::Object(_) => self
-                .registry
-                .name_for_field(parent, key, in_array, self.language),
+            SchemaKind::Object(_) => {
+                self.registry
+                    .name_for_field(parent, key, in_array, self.language)
+            }
         };
 
         if schema.nullable {
@@ -719,9 +709,10 @@ impl TypeRenderer {
                 let _ = self.php_type(inner, parent, key, true);
                 "array".to_string()
             }
-            SchemaKind::Object(_) => self
-                .registry
-                .name_for_field(parent, key, in_array, self.language),
+            SchemaKind::Object(_) => {
+                self.registry
+                    .name_for_field(parent, key, in_array, self.language)
+            }
         };
 
         if schema.nullable && base != "mixed" {
@@ -750,7 +741,11 @@ fn root_type_key(schema: &Schema) -> &'static str {
 
 fn sanitize_type_name(input: &str, language: TargetLanguage) -> String {
     let base = to_pascal_case(input);
-    let base = if base.is_empty() { "Root".to_string() } else { base };
+    let base = if base.is_empty() {
+        "Root".to_string()
+    } else {
+        base
+    };
     let base = if starts_with_digit(&base) {
         format!("Type{}", base)
     } else {
@@ -768,7 +763,11 @@ fn sanitize_identifier(input: &str, language: TargetLanguage) -> String {
         TargetLanguage::Java => to_lower_camel(input),
         TargetLanguage::Php => to_lower_camel(input),
     };
-    let base = if base.is_empty() { "field".to_string() } else { base };
+    let base = if base.is_empty() {
+        "field".to_string()
+    } else {
+        base
+    };
     let base = if starts_with_digit(&base) {
         format!("field_{}", base)
     } else {
@@ -813,9 +812,7 @@ fn is_valid_ts_identifier(input: &str) -> bool {
 }
 
 fn escape_string(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
+    input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn to_pascal_case(input: &str) -> String {
@@ -872,7 +869,11 @@ fn split_words(input: &str) -> Vec<String> {
 }
 
 fn starts_with_digit(input: &str) -> bool {
-    input.chars().next().map(|ch| ch.is_ascii_digit()).unwrap_or(false)
+    input
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_digit())
+        .unwrap_or(false)
 }
 
 fn avoid_keyword(name: String, language: TargetLanguage) -> String {
@@ -894,59 +895,227 @@ fn avoid_keyword(name: String, language: TargetLanguage) -> String {
 fn is_go_keyword(name: &str) -> bool {
     matches!(
         name,
-        "break" | "default" | "func" | "interface" | "select" | "case" | "defer" | "go" |
-            "map" | "struct" | "chan" | "else" | "goto" | "package" | "switch" | "const" |
-            "fallthrough" | "if" | "range" | "type" | "continue" | "for" | "import" |
-            "return" | "var"
+        "break"
+            | "default"
+            | "func"
+            | "interface"
+            | "select"
+            | "case"
+            | "defer"
+            | "go"
+            | "map"
+            | "struct"
+            | "chan"
+            | "else"
+            | "goto"
+            | "package"
+            | "switch"
+            | "const"
+            | "fallthrough"
+            | "if"
+            | "range"
+            | "type"
+            | "continue"
+            | "for"
+            | "import"
+            | "return"
+            | "var"
     )
 }
 
 fn is_rust_keyword(name: &str) -> bool {
     matches!(
         name,
-        "as" | "break" | "const" | "continue" | "crate" | "else" | "enum" | "extern" |
-            "false" | "fn" | "for" | "if" | "impl" | "in" | "let" | "loop" | "match" |
-            "mod" | "move" | "mut" | "pub" | "ref" | "return" | "self" | "Self" |
-            "static" | "struct" | "super" | "trait" | "true" | "type" | "unsafe" |
-            "use" | "where" | "while" | "async" | "await" | "dyn"
+        "as" | "break"
+            | "const"
+            | "continue"
+            | "crate"
+            | "else"
+            | "enum"
+            | "extern"
+            | "false"
+            | "fn"
+            | "for"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "Self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "true"
+            | "type"
+            | "unsafe"
+            | "use"
+            | "where"
+            | "while"
+            | "async"
+            | "await"
+            | "dyn"
     )
 }
 
 fn is_dart_keyword(name: &str) -> bool {
     matches!(
         name,
-        "abstract" | "as" | "assert" | "async" | "await" | "break" | "case" | "catch" |
-            "class" | "const" | "continue" | "covariant" | "default" | "deferred" | "do" |
-            "dynamic" | "else" | "enum" | "export" | "extends" | "extension" | "external" |
-            "factory" | "false" | "final" | "finally" | "for" | "Function" | "get" |
-            "hide" | "if" | "implements" | "import" | "in" | "interface" | "is" |
-            "late" | "library" | "mixin" | "new" | "null" | "on" | "operator" | "part" |
-            "rethrow" | "return" | "set" | "show" | "static" | "super" | "switch" |
-            "sync" | "this" | "throw" | "true" | "try" | "typedef" | "var" | "void" |
-            "while" | "with" | "yield"
+        "abstract"
+            | "as"
+            | "assert"
+            | "async"
+            | "await"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "covariant"
+            | "default"
+            | "deferred"
+            | "do"
+            | "dynamic"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "extension"
+            | "external"
+            | "factory"
+            | "false"
+            | "final"
+            | "finally"
+            | "for"
+            | "Function"
+            | "get"
+            | "hide"
+            | "if"
+            | "implements"
+            | "import"
+            | "in"
+            | "interface"
+            | "is"
+            | "late"
+            | "library"
+            | "mixin"
+            | "new"
+            | "null"
+            | "on"
+            | "operator"
+            | "part"
+            | "rethrow"
+            | "return"
+            | "set"
+            | "show"
+            | "static"
+            | "super"
+            | "switch"
+            | "sync"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "typedef"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
     )
 }
 
 fn is_php_keyword(name: &str) -> bool {
     matches!(
         name,
-        "class" | "function" | "public" | "private" | "protected" | "static" | "abstract" |
-            "final" | "extends" | "implements" | "interface" | "namespace" | "use" |
-            "trait" | "const"
+        "class"
+            | "function"
+            | "public"
+            | "private"
+            | "protected"
+            | "static"
+            | "abstract"
+            | "final"
+            | "extends"
+            | "implements"
+            | "interface"
+            | "namespace"
+            | "use"
+            | "trait"
+            | "const"
     )
 }
 
 fn is_java_keyword(name: &str) -> bool {
     matches!(
         name,
-        "abstract" | "assert" | "boolean" | "break" | "byte" | "case" | "catch" | "char" |
-            "class" | "const" | "continue" | "default" | "do" | "double" | "else" | "enum" |
-            "extends" | "final" | "finally" | "float" | "for" | "goto" | "if" |
-            "implements" | "import" | "instanceof" | "int" | "interface" | "long" |
-            "native" | "new" | "package" | "private" | "protected" | "public" | "return" |
-            "short" | "static" | "strictfp" | "super" | "switch" | "synchronized" | "this" |
-            "throw" | "throws" | "transient" | "try" | "void" | "volatile" | "while" | "true" |
-            "false" | "null" | "var" | "record" | "sealed" | "permits" | "yield"
+        "abstract"
+            | "assert"
+            | "boolean"
+            | "break"
+            | "byte"
+            | "case"
+            | "catch"
+            | "char"
+            | "class"
+            | "const"
+            | "continue"
+            | "default"
+            | "do"
+            | "double"
+            | "else"
+            | "enum"
+            | "extends"
+            | "final"
+            | "finally"
+            | "float"
+            | "for"
+            | "goto"
+            | "if"
+            | "implements"
+            | "import"
+            | "instanceof"
+            | "int"
+            | "interface"
+            | "long"
+            | "native"
+            | "new"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+            | "return"
+            | "short"
+            | "static"
+            | "strictfp"
+            | "super"
+            | "switch"
+            | "synchronized"
+            | "this"
+            | "throw"
+            | "throws"
+            | "transient"
+            | "try"
+            | "void"
+            | "volatile"
+            | "while"
+            | "true"
+            | "false"
+            | "null"
+            | "var"
+            | "record"
+            | "sealed"
+            | "permits"
+            | "yield"
     )
 }
 

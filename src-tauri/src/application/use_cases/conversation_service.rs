@@ -107,7 +107,8 @@ impl ConversationService {
         conversation_id: i64,
         limit: i64,
     ) -> Result<Vec<ConversationMessage>> {
-        self.get_recent_messages(conversation_id, limit as usize).await
+        self.get_recent_messages(conversation_id, limit as usize)
+            .await
     }
 
     /// Get recent messages from a conversation
@@ -133,16 +134,16 @@ impl ConversationService {
 
         let mut messages: Vec<ConversationMessage> = rows
             .into_iter()
-            .map(|(id, conv_id, role, content, sources, created_at)| {
-                ConversationMessage {
+            .map(
+                |(id, conv_id, role, content, sources, created_at)| ConversationMessage {
                     id,
                     conversation_id: conv_id,
                     role,
                     content,
                     sources,
                     created_at,
-                }
-            })
+                },
+            )
             .collect();
 
         // Reverse to get chronological order
@@ -152,7 +153,9 @@ impl ConversationService {
 
     /// Build conversation context for a new query
     pub async fn build_context(&self, conversation_id: i64) -> Result<ConversationContext> {
-        let messages = self.get_recent_messages(conversation_id, MAX_CONTEXT_MESSAGES).await?;
+        let messages = self
+            .get_recent_messages(conversation_id, MAX_CONTEXT_MESSAGES)
+            .await?;
 
         // Extract entities from conversation
         let entities = self.extract_entities(&messages);
@@ -232,7 +235,11 @@ impl ConversationService {
             for word in msg.content.split_whitespace() {
                 let clean = word.trim_matches(|c: char| !c.is_alphanumeric());
                 if clean.len() > 3
-                    && clean.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                    && clean
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false)
                     && !seen.contains(&clean.to_lowercase())
                 {
                     seen.insert(clean.to_lowercase());
@@ -290,7 +297,9 @@ impl ConversationService {
             "#
         };
 
-        let rows: Vec<(i64, Option<i64>, Option<String>, String, String)> = if let Some(cid) = collection_id {
+        let rows: Vec<(i64, Option<i64>, Option<String>, String, String)> = if let Some(cid) =
+            collection_id
+        {
             sqlx::query_as(sql)
                 .bind(cid)
                 .fetch_all(self.rag_repository.pool())
@@ -305,13 +314,15 @@ impl ConversationService {
 
         Ok(rows
             .into_iter()
-            .map(|(id, collection_id, title, created_at, updated_at)| Conversation {
-                id,
-                collection_id,
-                title,
-                created_at,
-                updated_at,
-            })
+            .map(
+                |(id, collection_id, title, created_at, updated_at)| Conversation {
+                    id,
+                    collection_id,
+                    title,
+                    created_at,
+                    updated_at,
+                },
+            )
             .collect())
     }
 

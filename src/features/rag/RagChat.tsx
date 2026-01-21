@@ -14,7 +14,7 @@ import {
   Plus,
 } from "lucide-react";
 import { useSettingsStore } from "../../store/settings";
-import { useEnhanceMutation } from "../../hooks/useLlmApi";
+import { useEnhanceMutation, useModelsQuery } from "../../hooks/useLlmApi";
 import { useLlmConfigBuilder } from "../../hooks/useLlmConfig";
 import {
   ragQuery,
@@ -28,7 +28,12 @@ import {
   type Conversation,
   type ConversationMessage as DbConversationMessage,
 } from "./api";
-import type { RagQueryResponse, ChatMessage, RagCollection } from "./types";
+import type {
+  RagQueryResponse,
+  ChatMessage,
+  RagCollection,
+  RagQueryResult,
+} from "./types";
 import AnimatedContainer from "../../shared/components/AnimatedContainer";
 import { cn } from "../../utils/cn";
 
@@ -54,22 +59,38 @@ export default function RagChat() {
   >(null);
   const [answerLanguage, setAnswerLanguage] = useState<"id" | "en">("id");
   const [showSources, setShowSources] = useState<{ [key: string]: boolean }>(
-    {}
+    {},
   );
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showConversations, setShowConversations] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const { provider, model, localModels, setModel } = useSettingsStore();
+  const { provider, model, localModels, setModel, setLocalModels } =
+    useSettingsStore();
   const buildConfig = useLlmConfigBuilder();
   const { mutateAsync: enhanceAsync } = useEnhanceMutation();
   const isLocalProvider =
     provider === "local" || provider === "ollama" || provider === "llama_cpp";
 
+  // Build config for fetching models (only for local provider)
+  const localConfig = buildConfig({ maxTokens: 1024, temperature: 0.7 });
+  const modelsQuery = useModelsQuery(localConfig, isLocalProvider);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Fetch and sync local models when using local provider
+  useEffect(() => {
+    if (!isLocalProvider) return;
+    if (!modelsQuery.data) return;
+    setLocalModels(modelsQuery.data);
+    // If current model is not in the list, set it to the first available model
+    if (modelsQuery.data.length > 0 && !modelsQuery.data.includes(model)) {
+      setModel(modelsQuery.data[0]);
+    }
+  }, [isLocalProvider, modelsQuery.data, setLocalModels, setModel, model]);
 
   useEffect(() => {
     listRagCollections(50).then(setCollections).catch(console.error);
@@ -101,7 +122,7 @@ export default function RagChat() {
     if (selectedCollectionId) {
       localStorage.setItem(
         "rag-selected-collection",
-        selectedCollectionId.toString()
+        selectedCollectionId.toString(),
       );
     }
   }, [selectedCollectionId]);
@@ -139,7 +160,7 @@ export default function RagChat() {
             content: msg.content,
             timestamp: new Date(msg.created_at),
             sources: msg.sources ? JSON.parse(msg.sources) : undefined,
-          })
+          }),
         );
         setMessages(chatMessages);
       } catch (err) {
@@ -148,7 +169,7 @@ export default function RagChat() {
         setIsLoadingHistory(false);
       }
     },
-    []
+    [],
   );
 
   // Handle conversation selection
@@ -158,7 +179,7 @@ export default function RagChat() {
       await loadConversationHistory(conversationId);
       setShowConversations(false);
     },
-    [loadConversationHistory]
+    [loadConversationHistory],
   );
 
   // Start new conversation
@@ -185,7 +206,7 @@ export default function RagChat() {
         console.error("Failed to delete conversation:", err);
       }
     },
-    [currentConversationId]
+    [currentConversationId],
   );
 
   const handleSend = useCallback(async () => {
@@ -201,13 +222,12 @@ export default function RagChat() {
       try {
         conversationId = await createConversation(
           selectedCollectionId,
-          query.slice(0, 50) + (query.length > 50 ? "..." : "")
+          query.slice(0, 50) + (query.length > 50 ? "..." : ""),
         );
         setCurrentConversationId(conversationId);
         // Refresh conversation list
-        const updatedConversations = await listConversations(
-          selectedCollectionId
-        );
+        const updatedConversations =
+          await listConversations(selectedCollectionId);
         setConversations(updatedConversations);
       } catch (err) {
         console.error("Failed to create conversation:", err);
@@ -242,21 +262,39 @@ export default function RagChat() {
       // Log retrieval gaps for analytics if results are low-confidence or missing
       const scores = response.results.map((r) => r.score || 0);
       const maxConfidence = scores.length > 0 ? Math.max(...scores) : 0;
-      const avgConfidence = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+      const avgConfidence =
+        scores.length > 0
+          ? scores.reduce((a, b) => a + b, 0) / scores.length
+          : 0;
+      // Use RAG context if: has results AND max confidence >= 0.4 (40%) AND avg confidence >= 0.25 (25%)
+      // Scores >= 40% are considered reliable, scores < 30% are doubtful
+      const hasStrongContext =
+        response.results.length > 0 &&
+        maxConfidence >= 0.4 &&
+        avgConfidence >= 0.25;
+      const hasSources = response.results.length > 0;
 
-      // Record gap if: no results, low max confidence (<0.5), or low avg confidence (<0.3)
-      if (response.results.length === 0 || maxConfidence < 0.5 || avgConfidence < 0.3) {
-        const gapType = response.results.length === 0
-          ? "no_results"
-          : maxConfidence < 0.3
-            ? "low_confidence"
-            : "partial_match";
+      // Record gap if: no results, low max confidence (<0.3), or low avg confidence (<0.25)
+      if (
+        response.results.length === 0 ||
+        maxConfidence < 0.3 ||
+        avgConfidence < 0.25
+      ) {
+        const gapType =
+          response.results.length === 0
+            ? "no_results"
+            : maxConfidence < 0.2
+              ? "low_confidence"
+              : "partial_match";
 
         // Hash query for privacy (simple hash, not crypto)
-        const queryHash = query.split("").reduce((a, b) => {
-          a = ((a << 5) - a) + b.charCodeAt(0);
-          return a & a;
-        }, 0).toString(16);
+        const queryHash = query
+          .split("")
+          .reduce((a, b) => {
+            a = (a << 5) - a + b.charCodeAt(0);
+            return a & a;
+          }, 0)
+          .toString(16);
 
         recordRetrievalGap({
           collection_id: selectedCollectionId,
@@ -266,26 +304,48 @@ export default function RagChat() {
           max_confidence: maxConfidence,
           avg_confidence: avgConfidence,
           gap_type: gapType,
-        }).catch((err) => console.error("Failed to record retrieval gap:", err));
+        }).catch((err) =>
+          console.error("Failed to record retrieval gap:", err),
+        );
       }
 
       const languageInstruction =
         answerLanguage === "en"
           ? "Answer in English only. Always answer in English even if the question is in another language."
           : "Answer in Indonesian only. Always answer in Indonesian even if the question is in another language.";
-      const responseRules = `Response rules:\n- ${languageInstruction}\n- Do not include source citations in the response.\n- Provide only the final answer.`;
 
-      const promptContent = response.results.length
-        ? `${responseRules}\n\n${response.prompt}`
-        : `${responseRules}\n\nUser question: ${query}`;
-      const contextInstruction = response.results.length
-        ? ""
-        : "No retrieved context is available. Answer as a general assistant.";
+      let promptContent: string;
+      let systemPrompt: string;
+
+      if (hasStrongContext) {
+        // We have context from RAG - use the retrieved context
+        const responseRules = `Response rules:\n- ${languageInstruction}\n- Do not include source citations in the response.\n- Provide only the final answer.`;
+        promptContent = `${responseRules}\n\n${response.prompt}`;
+        systemPrompt = `You are a helpful assistant answering questions based on the provided context. ${languageInstruction} Respond with only the final answer and do not include source citations.`;
+      } else {
+        // No context found - act as a general chatbot
+        promptContent = query;
+        systemPrompt = `You are a helpful and friendly AI assistant. ${languageInstruction} When you don't have specific information about a topic, you can still provide general helpful information, clarify the question, or ask follow-up questions to better understand what the user needs. Be conversational and natural in your responses.`;
+      }
+
+      // For local provider, ensure we use a valid model from localModels
+      const effectiveModel =
+        isLocalProvider && localModels.length > 0
+          ? localModels.includes(model)
+            ? model
+            : localModels[0]
+          : model;
+
+      const configOverrides = {
+        maxTokens: 900,
+        temperature: 0.2,
+        ...(effectiveModel !== model && { model: effectiveModel }),
+      };
 
       const llmResponse = await enhanceAsync({
-        config: buildConfig({ maxTokens: 900, temperature: 0.2 }),
+        config: buildConfig(configOverrides),
         content: promptContent,
-        system_prompt: `You are a helpful assistant. ${contextInstruction} ${languageInstruction} Respond with only the final answer and do not include source citations.`,
+        system_prompt: systemPrompt,
       });
 
       const cleanedAnswer = llmResponse.result
@@ -297,7 +357,7 @@ export default function RagChat() {
         type: "assistant",
         content: cleanedAnswer,
         timestamp: new Date(),
-        sources: response.results,
+        sources: hasSources ? response.results : undefined,
         query: query,
       };
 
@@ -306,12 +366,14 @@ export default function RagChat() {
       // Persist assistant message to database with source chunk IDs
       if (conversationId) {
         try {
-          const sourceIds = response.results.map((r) => r.source_id);
+          const sourceIds = hasSources
+            ? response.results.map((r) => r.source_id)
+            : undefined;
           await addConversationMessage(
             conversationId,
             "assistant",
             cleanedAnswer,
-            sourceIds
+            sourceIds,
           );
         } catch (err) {
           console.error("Failed to persist assistant message:", err);
@@ -360,7 +422,7 @@ export default function RagChat() {
         try {
           await deleteConversation(currentConversationId);
           setConversations((prev) =>
-            prev.filter((c) => c.id !== currentConversationId)
+            prev.filter((c) => c.id !== currentConversationId),
           );
         } catch (err) {
           console.error("Failed to delete conversation:", err);
@@ -369,6 +431,16 @@ export default function RagChat() {
       setMessages([]);
       setCurrentConversationId(null);
     }
+  };
+
+  const isLowConfidenceSources = (sources?: RagQueryResult[]) => {
+    if (!sources || sources.length === 0) return false;
+    const scores = sources.map((source) => source.score || 0);
+    const maxConfidence = Math.max(...scores);
+    const avgConfidence =
+      scores.reduce((sum, score) => sum + score, 0) / scores.length;
+    // Consider low confidence if max < 0.4 (40%) or avg < 0.25 (25%)
+    return maxConfidence < 0.4 || avgConfidence < 0.25;
   };
 
   const toggleSource = (messageId: string) => {
@@ -427,14 +499,14 @@ export default function RagChat() {
                     "w-full text-left px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-3 group",
                     selectedCollectionId === c.id
                       ? "bg-app-accent text-white shadow-md shadow-app-accent/10"
-                      : "text-app-text-muted hover:bg-app-card hover:text-app-text"
+                      : "text-app-text-muted hover:bg-app-card hover:text-app-text",
                   )}>
                   <Box
                     className={cn(
                       "w-4 h-4",
                       selectedCollectionId === c.id
                         ? "text-white/90"
-                        : "text-app-text-muted group-hover:text-app-text"
+                        : "text-app-text-muted group-hover:text-app-text",
                     )}
                   />
                   <span className="truncate">{c.name}</span>
@@ -469,7 +541,7 @@ export default function RagChat() {
                         "w-full text-left px-3 py-2 rounded-lg text-xs transition-all duration-200 flex items-center justify-between gap-2 group",
                         currentConversationId === conv.id
                           ? "bg-app-card border border-app-accent/30"
-                          : "hover:bg-app-card/50"
+                          : "hover:bg-app-card/50",
                       )}>
                       <div className="flex items-center gap-2 min-w-0">
                         <MessageSquare className="w-3.5 h-3.5 text-app-text-muted shrink-0" />
@@ -561,7 +633,7 @@ export default function RagChat() {
                     "flex-1 text-center py-1.5 text-[10px] font-semibold rounded-md transition-all flex items-center justify-center gap-1.5",
                     answerLanguage === "en"
                       ? "bg-app-accent text-white shadow-sm"
-                      : "text-app-text-muted hover:text-app-text hover:bg-app-bg/50"
+                      : "text-app-text-muted hover:text-app-text hover:bg-app-bg/50",
                   )}>
                   English
                 </button>
@@ -571,7 +643,7 @@ export default function RagChat() {
                     "flex-1 text-center py-1.5 text-[10px] font-semibold rounded-md transition-all flex items-center justify-center gap-1.5",
                     answerLanguage === "id"
                       ? "bg-app-accent text-white shadow-sm"
-                      : "text-app-text-muted hover:text-app-text hover:bg-app-bg/50"
+                      : "text-app-text-muted hover:text-app-text hover:bg-app-bg/50",
                   )}>
                   Indonesia
                 </button>
@@ -646,7 +718,7 @@ export default function RagChat() {
                   <div
                     className={cn(
                       "group relative flex flex-col gap-2",
-                      message.type === "user" ? "items-end" : "items-start"
+                      message.type === "user" ? "items-end" : "items-start",
                     )}>
                     <div className="flex items-center gap-2 mb-1 px-1">
                       <span
@@ -654,7 +726,7 @@ export default function RagChat() {
                           "text-[10px] font-bold uppercase tracking-wider",
                           message.type === "user"
                             ? "text-app-accent"
-                            : "text-app-text-muted"
+                            : "text-app-text-muted",
                         )}>
                         {message.type === "user" ? "You" : "Assistant"}
                       </span>
@@ -673,8 +745,8 @@ export default function RagChat() {
                         message.type === "user"
                           ? "bg-app-accent text-white rounded-tr-sm"
                           : message.type === "system"
-                          ? "bg-red-500/10 border border-red-500/20 text-red-500 text-sm"
-                          : "bg-app-card border border-app-border/40 text-app-text rounded-tl-sm"
+                            ? "bg-red-500/10 border border-red-500/20 text-red-500 text-sm"
+                            : "bg-app-card border border-app-border/40 text-app-text rounded-tl-sm",
                       )}>
                       <p className="text-sm leading-7 whitespace-pre-wrap">
                         {message.content}
@@ -685,18 +757,41 @@ export default function RagChat() {
                         message.sources &&
                         message.sources.length > 0 && (
                           <div className="mt-4 pt-3 border-t border-white/10 opacity-90">
-                            <button
-                              onClick={() => toggleSource(message.id)}
-                              className="flex items-center gap-1.5 text-xs text-app-subtext hover:text-app-accent transition-colors font-medium">
-                              {showSources[message.id] ? (
-                                <ChevronUp className="w-3.5 h-3.5" />
-                              ) : (
-                                <ChevronDown className="w-3.5 h-3.5" />
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => toggleSource(message.id)}
+                                  className="flex items-center gap-1.5 text-xs text-app-subtext hover:text-app-accent transition-colors font-medium">
+                                  {showSources[message.id] ? (
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  )}
+                                  {showSources[message.id]
+                                    ? "Hide References"
+                                    : `${message.sources.length} References`}
+                                </button>
+                                {isLowConfidenceSources(message.sources) && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded">
+                                    Low confidence
+                                  </span>
+                                )}
+                              </div>
+                              {!showSources[message.id] && (
+                                <div className="flex items-center gap-1.5 text-[9px] text-app-text-muted">
+                                  <span>Max:</span>
+                                  <span className={cn(
+                                    "font-bold",
+                                    (() => {
+                                      const maxScore = Math.max(...message.sources.map(s => s.score || 0));
+                                      return maxScore >= 0.4 ? "text-green-500" : maxScore >= 0.3 ? "text-amber-400" : "text-red-400";
+                                    })()
+                                  )}>
+                                    {Math.round((Math.max(...message.sources.map(s => s.score || 0))) * 100)}%
+                                  </span>
+                                </div>
                               )}
-                              {showSources[message.id]
-                                ? "Hide References"
-                                : `${message.sources.length} References`}
-                            </button>
+                            </div>
 
                             {showSources[message.id] && (
                               <div className="mt-3 space-y-2">
@@ -719,22 +814,46 @@ export default function RagChat() {
                                           </span>
                                         )}
                                       </div>
-                                      <button
-                                        onClick={() =>
-                                          handleCopy(
-                                            source.content,
-                                            `${message.id}-${idx}`
-                                          )
-                                        }
-                                        className="text-app-subtext hover:text-app-accent transition-colors shrink-0">
-                                        {copiedId === `${message.id}-${idx}` ? (
-                                          <div className="text-[10px] text-green-500 font-medium animate-pulse">
-                                            Copied
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        {source.score !== null && source.score !== undefined && (
+                                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border"
+                                            style={{
+                                              backgroundColor: source.score >= 0.4
+                                                ? 'rgba(34, 197, 94, 0.1)'
+                                                : source.score >= 0.3
+                                                  ? 'rgba(251, 191, 36, 0.1)'
+                                                  : 'rgba(239, 68, 68, 0.1)',
+                                              borderColor: source.score >= 0.4
+                                                ? 'rgba(34, 197, 94, 0.2)'
+                                                : source.score >= 0.3
+                                                  ? 'rgba(251, 191, 36, 0.2)'
+                                                  : 'rgba(239, 68, 68, 0.2)',
+                                              color: source.score >= 0.4
+                                                ? '#22c55e'
+                                                : source.score >= 0.3
+                                                  ? '#fbbf24'
+                                                  : '#ef4444'
+                                            }}>
+                                            <span>{Math.round(source.score * 100)}%</span>
                                           </div>
-                                        ) : (
-                                          <Copy className="w-3 h-3" />
                                         )}
-                                      </button>
+                                        <button
+                                          onClick={() =>
+                                            handleCopy(
+                                              source.content,
+                                              `${message.id}-${idx}`,
+                                            )
+                                          }
+                                          className="text-app-subtext hover:text-app-accent transition-colors shrink-0">
+                                          {copiedId === `${message.id}-${idx}` ? (
+                                            <div className="text-[10px] text-green-500 font-medium animate-pulse">
+                                              Copied
+                                            </div>
+                                          ) : (
+                                            <Copy className="w-3 h-3" />
+                                          )}
+                                        </button>
+                                      </div>
                                     </div>
                                     <p className="text-[11px] text-app-text-muted/80 leading-relaxed line-clamp-3 hover:line-clamp-none transition-all cursor-default">
                                       {source.content}
@@ -807,7 +926,7 @@ export default function RagChat() {
                 "absolute -inset-0.5 rounded-2xl opacity-0 transition-opacity duration-300",
                 selectedCollectionId
                   ? "group-hover:opacity-100"
-                  : "group-hover:opacity-0"
+                  : "group-hover:opacity-0",
               )}
             />
             <div className="relative flex gap-3 bg-app-card border border-app-border/60 rounded-xl p-2 shadow-lg shadow-black/5 transition-all focus-within:border-app-accent/50 focus-within:ring-1 focus-within:ring-app-accent/20">
