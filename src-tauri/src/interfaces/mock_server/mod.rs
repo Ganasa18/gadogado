@@ -2,6 +2,7 @@ use actix_web::dev::ServerHandle;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -68,14 +69,90 @@ impl Default for MockRouteMatchers {
 pub struct MockBodyMatch {
     pub mode: MatchMode,
     pub value: String,
+    #[serde(default)]
+    pub body_type: BodyType,
+    #[serde(default)]
+    pub form_data: Vec<FormDataItem>,
+    #[serde(default)]
+    pub form_urlencode: Vec<MockKeyValue>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MatchMode {
     Exact,
     Contains,
     Regex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyType {
+    RawJson,
+    RawXml,
+    FormData,
+    FormUrlencode,
+}
+
+impl Default for BodyType {
+    fn default() -> Self {
+        BodyType::RawJson
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseBodyType {
+    None,
+    FormData,
+    FormUrlencode,
+    Raw,
+}
+
+impl Default for ResponseBodyType {
+    fn default() -> Self {
+        ResponseBodyType::Raw
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RawSubType {
+    Text,
+    Json,
+    Xml,
+    Html,
+    Javascript,
+}
+
+impl Default for RawSubType {
+    fn default() -> Self {
+        RawSubType::Json
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormDataFieldType {
+    Text,
+    File,
+}
+
+impl Default for FormDataFieldType {
+    fn default() -> Self {
+        FormDataFieldType::Text
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormDataItem {
+    pub key: String,
+    pub value: String,
+    #[serde(rename = "type", default)]
+    pub field_type: FormDataFieldType,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +169,15 @@ pub struct MockResponse {
     pub status: u16,
     #[serde(default)]
     pub headers: Vec<MockKeyValue>,
+    #[serde(default)]
+    pub body_type: ResponseBodyType,
+    #[serde(default)]
+    pub raw_sub_type: RawSubType,
+    #[serde(default)]
+    pub form_data: Vec<FormDataItem>,
+    #[serde(default)]
+    pub form_urlencode: Vec<MockKeyValue>,
+    #[serde(default)]
     pub body: String,
     pub delay_ms: Option<u64>,
 }
@@ -102,6 +188,10 @@ impl Default for MockResponse {
             status: 200,
             headers: Vec::new(),
             body: "{}".to_string(),
+            body_type: ResponseBodyType::Raw,
+            raw_sub_type: RawSubType::Json,
+            form_data: Vec::new(),
+            form_urlencode: Vec::new(),
             delay_ms: None,
         }
     }
@@ -465,6 +555,29 @@ fn match_key_values(rules: &[MockKeyValue], values: &HashMap<String, String>) ->
 }
 
 fn match_body(rule: &MockBodyMatch, body_text: &str) -> bool {
+    match rule.body_type {
+        BodyType::FormUrlencode => {
+            if !match_form_urlencode(&rule.form_urlencode, body_text) {
+                return false;
+            }
+        }
+        BodyType::FormData => {
+            if !match_form_data(&rule.form_data, body_text) {
+                return false;
+            }
+        }
+        BodyType::RawJson => {
+            if let Some(result) = match_json_body(rule, body_text) {
+                return result;
+            }
+        }
+        BodyType::RawXml => {}
+    }
+
+    match_body_value(rule, body_text)
+}
+
+fn match_body_value(rule: &MockBodyMatch, body_text: &str) -> bool {
     let rule_value = rule.value.trim();
     if rule_value.is_empty() {
         return true;
@@ -475,6 +588,176 @@ fn match_body(rule: &MockBodyMatch, body_text: &str) -> bool {
         MatchMode::Regex => Regex::new(rule_value)
             .map(|re| re.is_match(body_text))
             .unwrap_or(false),
+    }
+}
+
+fn match_form_urlencode(rules: &[MockKeyValue], body_text: &str) -> bool {
+    let enabled_rules: Vec<&MockKeyValue> = rules.iter().filter(|rule| rule.enabled).collect();
+    if enabled_rules.is_empty() {
+        return true;
+    }
+    let parsed = parse_form_body(body_text);
+    match_key_values(rules, &parsed)
+}
+
+fn parse_form_body(body_text: &str) -> HashMap<String, String> {
+    url::form_urlencoded::parse(body_text.as_bytes())
+        .into_owned()
+        .map(|(key, value)| (key.to_lowercase(), value))
+        .collect()
+}
+
+fn match_form_data(rules: &[FormDataItem], body_text: &str) -> bool {
+    let enabled_rules: Vec<&FormDataItem> = rules.iter().filter(|rule| rule.enabled).collect();
+    if enabled_rules.is_empty() {
+        return true;
+    }
+    enabled_rules.into_iter().all(|rule| {
+        let key = rule.key.trim();
+        if key.is_empty() {
+            return true;
+        }
+        let name_token = format!("name=\"{}\"", key);
+        if !body_text.contains(&name_token) {
+            return false;
+        }
+        let value = rule.value.trim();
+        if value.is_empty() {
+            return true;
+        }
+        match rule.field_type {
+            FormDataFieldType::File => {
+                let filename_token = format!("filename=\"{}\"", value);
+                body_text.contains(&filename_token)
+            }
+            FormDataFieldType::Text => body_text.contains(value),
+        }
+    })
+}
+
+fn match_json_body(rule: &MockBodyMatch, body_text: &str) -> Option<bool> {
+    if rule.mode == MatchMode::Regex {
+        return None;
+    }
+
+    let rule_value = rule.value.trim();
+    let body_trim = body_text.trim();
+    if !is_json_like(rule_value) || !is_json_like(body_trim) {
+        return None;
+    }
+
+    let rule_json = parse_json_with_comments(rule_value)?;
+    let body_json = parse_json_with_comments(body_trim)?;
+
+    let matched = match rule.mode {
+        MatchMode::Exact => body_json == rule_json,
+        MatchMode::Contains => json_contains(&body_json, &rule_json),
+        MatchMode::Regex => false,
+    };
+
+    Some(matched)
+}
+
+fn is_json_like(input: &str) -> bool {
+    let trimmed = input.trim_start();
+    trimmed.starts_with('{') || trimmed.starts_with('[')
+}
+
+fn parse_json_with_comments(input: &str) -> Option<JsonValue> {
+    serde_json::from_str::<JsonValue>(input)
+        .ok()
+        .or_else(|| serde_json::from_str::<JsonValue>(&strip_json_comments(input)).ok())
+}
+
+fn strip_json_comments(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    let mut in_string = false;
+    let mut escape = false;
+
+    while let Some(c) = chars.next() {
+        if in_string {
+            output.push(c);
+            if escape {
+                escape = false;
+                continue;
+            }
+            if c == '\\' {
+                escape = true;
+                continue;
+            }
+            if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if c == '"' {
+            in_string = true;
+            output.push(c);
+            continue;
+        }
+
+        if c == '/' {
+            match chars.peek().copied() {
+                Some('/') => {
+                    chars.next();
+                    while let Some(nc) = chars.next() {
+                        if nc == '\n' {
+                            output.push('\n');
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                Some('*') => {
+                    chars.next();
+                    let mut prev = '\0';
+                    while let Some(nc) = chars.next() {
+                        if prev == '*' && nc == '/' {
+                            break;
+                        }
+                        prev = nc;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        output.push(c);
+    }
+
+    output
+}
+
+fn json_contains(haystack: &JsonValue, needle: &JsonValue) -> bool {
+    match (haystack, needle) {
+        (JsonValue::Object(hay), JsonValue::Object(need)) => need.iter().all(|(k, v)| {
+            hay.get(k)
+                .map(|hv| json_contains(hv, v))
+                .unwrap_or(false)
+        }),
+        (JsonValue::Array(hay), JsonValue::Array(need)) => {
+            if need.is_empty() {
+                return true;
+            }
+            let mut used = vec![false; hay.len()];
+            need.iter().all(|needle_item| {
+                hay.iter().enumerate().any(|(idx, hay_item)| {
+                    if used[idx] {
+                        return false;
+                    }
+                    if json_contains(hay_item, needle_item) {
+                        used[idx] = true;
+                        true
+                    } else {
+                        false
+                    }
+                })
+            })
+        }
+        _ => haystack == needle,
     }
 }
 

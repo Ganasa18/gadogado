@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from "react";
-import { motion } from "framer-motion";
 import {
   preprocessCsvFile,
   previewCsvRows,
@@ -79,8 +78,7 @@ export const CsvUploadPreview: React.FC<CsvUploadPreviewProps> = ({
           isNarrative
             ? "bg-blue-100 text-blue-700"
             : "bg-green-100 text-green-700"
-        }`}
-      >
+        }`}>
         {preprocessingResult.contentType}
       </span>
     );
@@ -93,8 +91,8 @@ export const CsvUploadPreview: React.FC<CsvUploadPreviewProps> = ({
       confidence > 0.8
         ? "bg-green-100 text-green-700"
         : confidence > 0.5
-        ? "bg-yellow-100 text-yellow-700"
-        : "bg-red-100 text-red-700";
+          ? "bg-yellow-100 text-yellow-700"
+          : "bg-red-100 text-red-700";
 
     return (
       <span className={`px-2 py-1 rounded text-xs font-medium ${color}`}>
@@ -112,8 +110,7 @@ export const CsvUploadPreview: React.FC<CsvUploadPreviewProps> = ({
           <button
             onClick={handleFileSelect}
             disabled={loading}
-            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
-          >
+            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 transition-colors">
             {loading ? "Loading..." : "Select CSV File"}
           </button>
           {error && <p className="mt-4 text-red-500">{error}</p>}
@@ -122,7 +119,9 @@ export const CsvUploadPreview: React.FC<CsvUploadPreviewProps> = ({
         <div className="space-y-6">
           {/* File Info */}
           <div className="p-4 bg-gray-50 rounded-lg">
-            <h3 className="font-semibold mb-2">File: {filePath.split(/[/\\]/).pop()}</h3>
+            <h3 className="font-semibold mb-2">
+              File: {filePath.split(/[/\\]/).pop()}
+            </h3>
             {preprocessingResult && (
               <div className="flex flex-wrap gap-2">
                 {getContentTypeBadge()}
@@ -153,13 +152,19 @@ export const CsvUploadPreview: React.FC<CsvUploadPreviewProps> = ({
                   Lexical Diversity
                 </p>
                 <p className="text-2xl font-bold text-purple-700">
-                  {(preprocessingResult.analysis.lexicalDiversity * 100).toFixed(1)}%
+                  {(
+                    preprocessingResult.analysis.lexicalDiversity * 100
+                  ).toFixed(1)}
+                  %
                 </p>
               </div>
               <div className="p-4 bg-green-50 rounded-lg">
-                <p className="text-sm text-green-600 font-medium">Numeric Ratio</p>
+                <p className="text-sm text-green-600 font-medium">
+                  Numeric Ratio
+                </p>
                 <p className="text-2xl font-bold text-green-700">
-                  {(preprocessingResult.analysis.numericRatio * 100).toFixed(1)}%
+                  {(preprocessingResult.analysis.numericRatio * 100).toFixed(1)}
+                  %
                 </p>
               </div>
               <div className="p-4 bg-orange-50 rounded-lg">
@@ -180,8 +185,7 @@ export const CsvUploadPreview: React.FC<CsvUploadPreviewProps> = ({
                 <h3 className="font-semibold">Preview (first 5 rows)</h3>
                 <button
                   onClick={() => setShowFullPreview(!showFullPreview)}
-                  className="text-sm text-blue-500 hover:text-blue-700"
-                >
+                  className="text-sm text-blue-500 hover:text-blue-700">
                   {showFullPreview ? "Show less" : "Show more"}
                 </button>
               </div>
@@ -200,23 +204,20 @@ export const CsvUploadPreview: React.FC<CsvUploadPreviewProps> = ({
             {onCancel && (
               <button
                 onClick={onCancel}
-                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
+                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
                 Cancel
               </button>
             )}
             <button
               onClick={handleFileSelect}
-              className="px-6 py-2 border border-blue-500 text-blue-500 rounded-lg hover:bg-blue-50 transition-colors"
-            >
+              className="px-6 py-2 border border-blue-500 text-blue-500 rounded-lg hover:bg-blue-50 transition-colors">
               Change File
             </button>
             {onProceed && (
               <button
                 onClick={handleProceed}
                 disabled={!preprocessingResult}
-                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
                 Proceed to Import
               </button>
             )}

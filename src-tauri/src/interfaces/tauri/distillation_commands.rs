@@ -557,6 +557,12 @@ pub async fn distill_list_base_models(
         if resource_base.exists() {
             match scan_base_models(&resource_base, "resource") {
                 Ok(models) => {
+                    for model in &models {
+                        add_log(&state.logs, "DEBUG", "Distillation", &format!(
+                            "Found model in resources: {} (path: {}, kind: {}, format: {})",
+                            model.name, model.path, model.kind, model.format
+                        ));
+                    }
                     add_log(&state.logs, "INFO", "Distillation", &format!("Found {} models in resources", models.len()));
                     entries.extend(models);
                 }
@@ -576,6 +582,12 @@ pub async fn distill_list_base_models(
                         if dev_resource_path.exists() {
                             match scan_base_models(&dev_resource_path, "resource") {
                                 Ok(models) => {
+                                    for model in &models {
+                                        add_log(&state.logs, "DEBUG", "Distillation", &format!(
+                                            "Found model in dev resources: {} (path: {}, kind: {}, format: {})",
+                                            model.name, model.path, model.kind, model.format
+                                        ));
+                                    }
                                     add_log(&state.logs, "INFO", "Distillation", &format!("Found {} models in dev resources", models.len()));
                                     entries.extend(models);
                                 }
@@ -595,6 +607,12 @@ pub async fn distill_list_base_models(
     if layout.models_base_dir().exists() {
         match scan_base_models(layout.models_base_dir(), "app_data") {
             Ok(models) => {
+                for model in &models {
+                    add_log(&state.logs, "DEBUG", "Distillation", &format!(
+                        "Found model in app_data: {} (path: {}, kind: {}, format: {})",
+                        model.name, model.path, model.kind, model.format
+                    ));
+                }
                 add_log(&state.logs, "INFO", "Distillation", &format!("Found {} models in app_data", models.len()));
                 entries.extend(models);
             }
@@ -864,8 +882,31 @@ fn scan_base_models(dir: &Path, source: &str) -> Result<Vec<BaseModelEntry>> {
             }
 
             if path.is_dir() {
-                // Recurse into subdirectories
-                collect_models(&path, source, out)?;
+                // Check if this directory is a valid HuggingFace model (has config.json)
+                let config_path = path.join("config.json");
+                if config_path.exists() {
+                    // This is an HF model directory - create an entry for it
+                    let name = path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| {
+                            let uuid_str = Uuid::new_v4().to_string();
+                            format!("model-{}", &uuid_str[..8])
+                        });
+
+                    out.push(BaseModelEntry {
+                        name,
+                        path: path.to_string_lossy().to_string(),
+                        source: source.to_string(),
+                        kind: "dir".to_string(),
+                        format: "hf".to_string(),
+                    });
+                    // Don't recurse into HF model directories - we've already captured the model
+                } else {
+                    // Not an HF model directory, recurse to look for GGUF files inside
+                    collect_models(&path, source, out)?;
+                }
             } else {
                 // Only process files (not directories) at this level
                 let kind = "file";
