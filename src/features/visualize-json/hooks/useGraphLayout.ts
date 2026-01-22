@@ -60,6 +60,7 @@ export const useGraphLayout = (json: JsonNode | null) => {
           label: node.key || 'root',
           type: node.type,
           value: getValuePreview(node),
+          rawValue: node.value,
           isRoot: node.depth === 0,
           expanded: node.expanded !== false,
           hasChildren: !!node.children && node.children.length > 0,

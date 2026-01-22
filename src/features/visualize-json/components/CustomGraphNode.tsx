@@ -1,6 +1,15 @@
 import { memo } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
-import { Braces, Brackets, Type, Hash, ToggleLeft, Ban, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Braces,
+  Brackets,
+  Type,
+  Hash,
+  ToggleLeft,
+  Ban,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 
 const getTypeColor = (type: string) => {
   switch (type) {
@@ -66,16 +75,43 @@ const TypeIcon = ({
 };
 
 const CustomGraphNode = ({ data }: NodeProps) => {
-  const { label, type, value, isRoot, expanded, hasChildren, path } = data as any;
-  const onToggle = () => {
-    const event = new CustomEvent('toggleNode', { detail: path });
+  const { label, type, value, rawValue, isRoot, expanded, hasChildren, path } =
+    data as any;
+
+  const onToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const event = new CustomEvent("toggleNode", { detail: path });
+    window.dispatchEvent(event);
+  };
+
+  const truncateValue = (val: string, maxLen: number = 30) => {
+    if (val.length > maxLen) {
+      return val.substring(0, maxLen) + "...";
+    }
+    return val;
+  };
+
+  const displayValue = truncateValue(String(value), 30);
+  const displayLabel = truncateValue(String(label), 20);
+
+  const handleNodeClick = () => {
+    // Dispatch event to parent to show single modal overlay
+    const event = new CustomEvent("showNodeDetail", {
+      detail: {
+        label: String(label),
+        type: String(type),
+        value: rawValue,
+        path: path,
+      },
+    });
     window.dispatchEvent(event);
   };
 
   return (
     <div
-      className={`shadow-md rounded-lg border  transition-all hover:border-app-accent/40 bg-app-card ${getTypeBg(
-        String(type)
+      onClick={handleNodeClick}
+      className={`shadow-md rounded-lg border transition-all hover:border-app-accent/40 bg-app-card w-[200px] cursor-pointer ${getTypeBg(
+        String(type),
       )}`}>
       <Handle
         type="target"
@@ -83,12 +119,12 @@ const CustomGraphNode = ({ data }: NodeProps) => {
         className="!bg-app-border !w-1 !h-3 !rounded-sm !border-none"
       />
 
-      <div className="flex items-center justify-between px-3 py-2 border-b border-app-border/40">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-app-border/40 gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           {hasChildren && (
             <button
               onClick={onToggle}
-              className="p-0.5 rounded hover:bg-app-accent/20 hover:text-app-accent transition"
+              className="p-0.5 rounded hover:bg-app-accent/20 hover:text-app-accent transition flex-shrink-0"
               title={expanded ? "Collapse" : "Expand"}>
               {expanded ? (
                 <ChevronDown size={14} />
@@ -98,33 +134,33 @@ const CustomGraphNode = ({ data }: NodeProps) => {
             </button>
           )}
           <span
-            className={`p-1 rounded-md bg-app-bg ${getTypeColor(
-              String(type)
+            className={`p-1 rounded-md bg-app-bg flex-shrink-0 ${getTypeColor(
+              String(type),
             )}`}>
             <TypeIcon type={String(type)} />
           </span>
           <span
             className="font-semibold text-sm text-app-text truncate"
             title={String(label)}>
-            {String(label)}
+            {displayLabel}
           </span>
         </div>
         {isRoot && (
-          <span className="text-[10px] font-bold uppercase tracking-wider text-app-accent bg-app-accent/10 px-1.5 py-0.5 rounded">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-app-accent bg-app-accent/10 px-1.5 py-0.5 rounded flex-shrink-0">
             Root
           </span>
         )}
       </div>
 
       <div className="p-3 bg-app-bg/20">
-        <div className="flex justify-between items-center text-xs">
+        <div className="flex flex-col gap-1 text-xs">
           <span className="text-app-subtext uppercase font-medium tracking-wide text-[10px]">
             {String(type)}
           </span>
           <span
-            className="font-mono text-app-text truncate"
+            className="font-mono text-app-text break-all line-clamp-2"
             title={String(value)}>
-            {String(value)}
+            {displayValue}
           </span>
         </div>
       </div>
