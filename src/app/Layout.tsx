@@ -23,11 +23,13 @@ export default function Layout() {
   const [capturedText, setCapturedText] = useState<string | null>(null);
   const [popupOpen, setPopupOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { provider, model, shortcutsEnabled } = useSettingsStore(
+  const { provider, model, shortcutsEnabled, navSettings, sectionSettings } = useSettingsStore(
     useShallow((state) => ({
       provider: state.provider,
       model: state.model,
       shortcutsEnabled: state.shortcutsEnabled,
+      navSettings: state.navSettings,
+      sectionSettings: state.sectionSettings,
     })),
   );
 
@@ -46,13 +48,27 @@ export default function Layout() {
 
   const visibleSections = useMemo(
     () =>
-      NAV_SECTIONS.map((section) => ({
+      [...NAV_SECTIONS]
+        .sort((a, b) => {
+           const orderA = sectionSettings[a.id]?.order ?? 0;
+           const orderB = sectionSettings[b.id]?.order ?? 0;
+           return orderA - orderB;
+        })
+        .map((section) => ({
         ...section,
-        items: section.items.filter(
-          (item) => !item.requiresShortcuts || shortcutsEnabled,
-        ),
-      })),
-    [shortcutsEnabled],
+        items: section.items
+          .filter(
+            (item) =>
+              (!item.requiresShortcuts || shortcutsEnabled) &&
+              (navSettings[item.path]?.visible ?? true),
+          )
+          .sort((a, b) => {
+            const orderA = navSettings[a.path]?.order ?? 0;
+            const orderB = navSettings[b.path]?.order ?? 0;
+            return orderA - orderB;
+          }),
+      })).filter((section) => section.items.length > 0),
+    [shortcutsEnabled, navSettings, sectionSettings],
   );
 
   const visibleItems = useMemo(

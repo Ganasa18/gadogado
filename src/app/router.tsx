@@ -14,6 +14,7 @@ import RagTab from "../features/rag/RagTab";
 import RagChat from "../features/rag/RagChat";
 import RagAnalytics from "../features/rag/RagAnalytics";
 import VisualizeJsonPage from "../features/visualize-json/VisualizeJsonPage";
+import { DiffCheckerPage } from "../features/diff-checker";
 import MockServerTab from "../features/mock-server";
 import {
   AiResultsPage,
@@ -21,6 +22,7 @@ import {
   SessionHistoryTab,
   SessionManagerTab,
 } from "../features/qa";
+import MenuManagementTab from "../features/settings/pages/MenuManagementTab";
 import {
   SetupTab,
   TrainTab,
@@ -103,8 +105,16 @@ export const router = createBrowserRouter([
         element: <FeedbackTab />,
       },
       {
+        path: "menu-management",
+        element: <MenuManagementTab />,
+      },
+      {
         path: "visualize-json",
         element: <VisualizeJsonPage />,
+      },
+      {
+        path: "diff-checker",
+        element: <DiffCheckerPage />,
       },
       {
         path: "tutorial",

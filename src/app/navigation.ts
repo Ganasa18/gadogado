@@ -17,6 +17,8 @@ import {
   Cog,
   Play,
   Download,
+  LayoutDashboard,
+  GitCompare,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -86,6 +88,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: "/visualize-json",
         label: "Visualize Tools",
         icon: KeyRound,
+        section: "Workspace",
+      },
+      {
+        path: "/diff-checker",
+        label: "Diff Checker",
+        icon: GitCompare,
         section: "Workspace",
       },
       {
@@ -172,6 +180,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: "/general",
         label: "General",
         icon: Settings,
+        section: "Configuration",
+      },
+      {
+        path: "/menu-management",
+        label: "Menu Management", // Or Navigation
+        icon: LayoutDashboard,
         section: "Configuration",
       },
       {
