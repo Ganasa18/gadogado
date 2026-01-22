@@ -89,6 +89,13 @@ export interface SettingsState {
   updatePromptTemplate: (id: string, updates: Partial<PromptTemplate>) => void;
   deletePromptTemplate: (id: string) => void;
   restoreDefaultTemplates: () => void;
+  // Navigation Management
+  navSettings: Record<string, { visible: boolean; order: number }>;
+  sectionSettings: Record<string, { order: number; visible: boolean }>; // visible defaults to true if missing
+  toggleNavVisibility: (path: string) => void;
+  setNavOrder: (path: string, order: number) => void;
+  setSectionOrder: (sectionId: string, order: number) => void;
+  resetNavSettings: () => void;
 }
 
 const DEFAULT_SHORTCUTS: SettingsState["shortcuts"] = {
@@ -110,6 +117,65 @@ const PROVIDER_BASE_URLS: Record<LLMProvider, string> = {
   ollama: "http://localhost:11434/v1",
   llama_cpp: "http://localhost:8080/v1",
   dll: "",
+};
+
+export const DEFAULT_MODELS: Record<LLMProvider, string> = {
+  local: "local-model",
+  openai: "gpt-4o",
+  gemini: "gemini-2.0-flash",
+  ollama: "llama3",
+  llama_cpp: "llama-3-8b-instruct",
+  dll: "",
+};
+
+export interface ProviderConfig {
+  baseUrl: string;
+  defaultModel: string;
+  requiresApiKey: boolean;
+  label: string;
+}
+
+export const PROVIDER_CONFIGS: Record<LLMProvider, ProviderConfig> = {
+  local: {
+    baseUrl: PROVIDER_BASE_URLS.local,
+    defaultModel: DEFAULT_MODELS.local,
+    requiresApiKey: false,
+    label: "Local (LM Studio)",
+  },
+  openai: {
+    baseUrl: PROVIDER_BASE_URLS.openai,
+    defaultModel: DEFAULT_MODELS.openai,
+    requiresApiKey: true,
+    label: "OpenAI",
+  },
+  gemini: {
+    baseUrl: PROVIDER_BASE_URLS.gemini,
+    defaultModel: DEFAULT_MODELS.gemini,
+    requiresApiKey: true,
+    label: "Google Gemini",
+  },
+  ollama: {
+    baseUrl: PROVIDER_BASE_URLS.ollama,
+    defaultModel: DEFAULT_MODELS.ollama,
+    requiresApiKey: false,
+    label: "Ollama",
+  },
+  llama_cpp: {
+    baseUrl: PROVIDER_BASE_URLS.llama_cpp,
+    defaultModel: DEFAULT_MODELS.llama_cpp,
+    requiresApiKey: false,
+    label: "Llama.cpp",
+  },
+  dll: {
+    baseUrl: PROVIDER_BASE_URLS.dll,
+    defaultModel: DEFAULT_MODELS.dll,
+    requiresApiKey: false,
+    label: "DLL Plugin",
+  },
+};
+
+export const isKeylessProvider = (provider: LLMProvider): boolean => {
+  return !PROVIDER_CONFIGS[provider].requiresApiKey;
 };
 
 const normalizeProvider = (value?: string): LLMProvider => {
@@ -203,6 +269,40 @@ export const useSettingsStore = create<SettingsState>()(
           promptTemplates: DEFAULT_TEMPLATES,
           activeTemplateId: "default",
         }),
+      // Navigation Management Implementation
+      navSettings: {},
+      toggleNavVisibility: (path) =>
+        set((state) => {
+          const current = state.navSettings[path] || { visible: true, order: 0 };
+          return {
+            navSettings: {
+              ...state.navSettings,
+              [path]: { ...current, visible: !current.visible },
+            },
+          };
+        }),
+      setNavOrder: (path, order) =>
+        set((state) => {
+          const current = state.navSettings[path] || { visible: true, order: 0 };
+          return {
+            navSettings: {
+              ...state.navSettings,
+              [path]: { ...current, order },
+            },
+          };
+        }),
+      sectionSettings: {},
+      setSectionOrder: (sectionId, order) =>
+        set((state) => {
+          const current = state.sectionSettings[sectionId] || { visible: true, order: 0 };
+          return {
+            sectionSettings: {
+              ...state.sectionSettings,
+              [sectionId]: { ...current, order },
+            },
+          };
+        }),
+      resetNavSettings: () => set({ navSettings: {}, sectionSettings: {} }),
     }),
     {
       name: "promptbridge-settings",

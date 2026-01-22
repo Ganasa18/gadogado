@@ -848,6 +848,25 @@ pub fn run() {
             distill_delete_soft_label,
             distill_link_soft_labels_to_run
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Only handle close for the main window
+                if window.label() == "main" {
+                    let app_handle = window.app_handle().clone();
+
+                    // Get the app state and cleanup child processes
+                    if let Some(state) = app_handle.try_state::<Arc<AppState>>() {
+                        // Run cleanup in a blocking task to ensure it completes
+                        tauri::async_runtime::block_on(async {
+                            crate::interfaces::tauri::cleanup_child_processes(&state).await;
+                        });
+                    }
+
+                    // Exit the app after cleanup
+                    app_handle.exit(0);
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

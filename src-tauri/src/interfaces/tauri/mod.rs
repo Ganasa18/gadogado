@@ -137,6 +137,31 @@ pub(crate) struct DistillTrainerHandle {
     run_dir: PathBuf,
 }
 
+/// Cleanup all child processes when the app is closing.
+/// This function kills the QA browser recorder and all distill trainers.
+pub async fn cleanup_child_processes(state: &AppState) {
+    // Kill QA recorder if running
+    if let Some(handle) = state.qa_recorder.lock().unwrap().take() {
+        let mut child = handle.child.lock().await;
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        tracing::info!("Killed QA browser recorder (run_id: {})", handle.run_id);
+    }
+
+    // Kill all distill trainers
+    let handles: Vec<_> = {
+        let mut trainers = state.distill_trainers.lock().unwrap();
+        trainers.drain().collect()
+    };
+
+    for (run_id, handle) in handles {
+        let mut child = handle.child.lock().await;
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        tracing::info!("Killed distill trainer (run_id: {})", run_id);
+    }
+}
+
 fn emit_status_log(
     app: &tauri::AppHandle,
     logs: &Arc<Mutex<Vec<LogEntry>>>,
@@ -1181,19 +1206,42 @@ pub async fn qa_start_browser_recorder(
         .map_err(|err| AppError::Internal(format!("Failed to ensure QA session dir: {}", err)))?;
     let storage_state_path = session_dir.join(format!("storage_state_{}.json", run_id));
 
-    let current_dir = std::env::current_dir()
-        .map_err(|err| AppError::Internal(format!("Failed to resolve cwd: {}", err)))?;
-    let script_candidates = [
-        current_dir.join("scripts/qa-browser-recorder.mjs"),
-        current_dir
-            .join("..")
-            .join("scripts/qa-browser-recorder.mjs"),
+    // Resolve script path - try multiple locations for dev and production
+    let cargo_manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let resource_dir = app.path().resource_dir().ok();
+
+    let mut script_candidates: Vec<PathBuf> = vec![
+        // Development: script in src-tauri/resources/scripts folder
+        cargo_manifest_dir.join("resources").join("scripts").join("qa-browser-recorder.mjs"),
     ];
+
+    // Production: bundled resources
+    if let Some(ref res_dir) = resource_dir {
+        script_candidates.push(res_dir.join("scripts").join("qa-browser-recorder.mjs"));
+    }
+
     let script_path = script_candidates
         .iter()
         .find(|path| path.exists())
         .cloned()
-        .ok_or_else(|| AppError::NotFound("QA recorder script not found.".to_string()))?;
+        .ok_or_else(|| {
+            let candidates_str = script_candidates
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            AppError::NotFound(format!(
+                "QA recorder script not found. Searched: {}",
+                candidates_str
+            ))
+        })?;
+
+    add_log(
+        &state.logs,
+        "INFO",
+        "QA",
+        &format!("Using recorder script at: {}", script_path.display()),
+    );
 
     let mut command = TokioCommand::new("node");
     command
@@ -1822,6 +1870,7 @@ pub async fn qa_execute_api_request(
 
 #[tauri::command]
 pub async fn qa_replay_browser(
+    app: tauri::AppHandle,
     state: State<'_, Arc<AppState>>,
     target_url: String,
     events: Vec<QaBrowserReplayEvent>,
@@ -1845,17 +1894,34 @@ pub async fn qa_replay_browser(
     fs::write(&temp_path, payload_json)
         .map_err(|err| AppError::Internal(format!("Failed to write replay payload: {}", err)))?;
 
-    let current_dir = std::env::current_dir()
-        .map_err(|err| AppError::Internal(format!("Failed to resolve cwd: {}", err)))?;
-    let script_candidates = [
-        current_dir.join("scripts/qa-browser-replay.mjs"),
-        current_dir.join("..").join("scripts/qa-browser-replay.mjs"),
+    let cargo_manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let resource_dir = app.path().resource_dir().ok();
+
+    let mut script_candidates: Vec<PathBuf> = vec![
+        // Development: script in src-tauri/resources/scripts folder
+        cargo_manifest_dir.join("resources").join("scripts").join("qa-browser-replay.mjs"),
     ];
+
+    // Production: bundled resources
+    if let Some(ref res_dir) = resource_dir {
+        script_candidates.push(res_dir.join("scripts").join("qa-browser-replay.mjs"));
+    }
+
     let script_path = script_candidates
         .iter()
         .find(|path| path.exists())
         .cloned()
-        .ok_or_else(|| AppError::NotFound("QA replay script not found.".to_string()))?;
+        .ok_or_else(|| {
+            let candidates_str = script_candidates
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            AppError::NotFound(format!(
+                "QA replay script not found. Searched: {}",
+                candidates_str
+            ))
+        })?;
 
     let logs = state.logs.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<()> {

@@ -35,7 +35,12 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Wand2,
+  RefreshCw,
+  Undo2,
+  Loader2,
 } from "lucide-react";
+import { useFixJsonAI } from "./hooks/useFixJsonAI";
 
 const VisualizeJsonPage = () => {
   const {
@@ -51,7 +56,10 @@ const VisualizeJsonPage = () => {
   } = useJsonVisualization();
 
   const [inputValue, setInputValue] = useState("");
+  const [originalInputValue, setOriginalInputValue] = useState("");
+  const [hasAiFixed, setHasAiFixed] = useState(false);
   const { mode } = useThemeStore();
+  const { fixJson, isFixing, error: aiError, clearError: clearAiError } = useFixJsonAI();
 
   const { nodes: layoutedNodes, edges: layoutedEdges, isTooLarge: isGraphTooLarge } = useGraphLayout(
     state.json
@@ -120,6 +128,41 @@ const VisualizeJsonPage = () => {
   const handleClear = () => {
     clearLocalStorage();
     setInputValue("");
+    setOriginalInputValue("");
+    setHasAiFixed(false);
+    clearAiError();
+  };
+
+  const handleFixWithAI = async () => {
+    if (!inputValue.trim() || isFixing) return;
+
+    // Store original value for revert
+    if (!hasAiFixed) {
+      setOriginalInputValue(inputValue);
+    }
+
+    const fixedJson = await fixJson(inputValue);
+    if (fixedJson) {
+      setInputValue(fixedJson);
+      setHasAiFixed(true);
+    }
+  };
+
+  const handleRevertToOriginal = () => {
+    if (originalInputValue) {
+      setInputValue(originalInputValue);
+      setHasAiFixed(false);
+      clearAiError();
+    }
+  };
+
+  const handleRegenerateAiFix = async () => {
+    if (!originalInputValue.trim() || isFixing) return;
+
+    const fixedJson = await fixJson(originalInputValue);
+    if (fixedJson) {
+      setInputValue(fixedJson);
+    }
   };
 
   useEffect(() => {
@@ -331,25 +374,43 @@ const VisualizeJsonPage = () => {
                 <div className="relative group">
                   <textarea
                     value={inputValue}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      setInputValue(e.target.value)
-                    }
-                    placeholder='{"event_id": "evt_001", "action": "checkout"}'
-                    className="w-full h-48 rounded-lg border border-app-border bg-app-bg px-4 py-3 text-[13px] font-mono text-app-text focus:border-app-accent/50 focus:outline-none transition-all resize-none"
-                  />
-                  {/* <div className="absolute top-2 right-2 flex gap-1">
-                    <button
-                      onClick={() =>
-                        setInputValue(
-                          '{\n  "event_id": "evt_89402_x",\n  "timestamp": 169824921104,\n  "type": "interaction",\n  "trigger": "click",\n  "meta": {\n    "target_element": {\n      "tag": "button",\n      "id": "submit-login",\n      "class": "btn-primary large"\n    }\n  }\n}'
-                        )
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                      setInputValue(e.target.value);
+                      if (hasAiFixed) {
+                        setHasAiFixed(false);
                       }
-                      className="p-1.5 rounded-md bg-app-panel text-app-subtext hover:text-app-accent transition"
-                      title="Insert Example">
-                      <Play size={14} />
+                      clearAiError();
+                    }}
+                    placeholder='{"event_id": "evt_001", "action": "checkout"}'
+                    className={`w-full h-48 rounded-lg border bg-app-bg px-4 py-3 text-[13px] font-mono text-app-text focus:border-app-accent/50 focus:outline-none transition-all resize-none ${
+                      aiError ? "border-red-500/50" : "border-app-border"
+                    }`}
+                  />
+                  <div className="absolute top-2 right-2 flex gap-1">
+                    <button
+                      onClick={handleFixWithAI}
+                      disabled={!inputValue.trim() || isFixing}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 hover:text-purple-300 disabled:opacity-40 disabled:cursor-not-allowed transition text-[11px] font-semibold border border-purple-500/20"
+                      title="Fix JSON with AI">
+                      {isFixing ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Wand2 size={12} />
+                      )}
+                      FIX AI
                     </button>
-                  </div> */}
+                  </div>
                 </div>
+
+                {aiError && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                    <X size={14} />
+                    <span className="flex-1">{aiError}</span>
+                    <button onClick={clearAiError} className="hover:text-red-300 transition">
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <Button
@@ -357,6 +418,29 @@ const VisualizeJsonPage = () => {
                     className="flex-1 bg-app-accent hover:bg-app-accent/90 text-white font-bold h-10">
                     Generate View
                   </Button>
+                  {hasAiFixed && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        onClick={handleRegenerateAiFix}
+                        disabled={isFixing}
+                        className="px-3 border-app-border hover:bg-purple-500/10 hover:text-purple-400 hover:border-purple-500/20"
+                        title="Regenerate AI fix">
+                        {isFixing ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={18} />
+                        )}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={handleRevertToOriginal}
+                        className="px-3 border-app-border hover:bg-orange-500/10 hover:text-orange-400 hover:border-orange-500/20"
+                        title="Revert to original">
+                        <Undo2 size={18} />
+                      </Button>
+                    </>
+                  )}
                   <Button
                     variant="secondary"
                     onClick={handleClear}
@@ -784,7 +868,7 @@ const VisualizeJsonPage = () => {
                   </button>
                 </div>
                 <div className="flex-1 overflow-auto p-0 bg-app-bg/50">
-                  <pre className="json-formatter p-6 text-sm font-mono text-app-text whitespace-pre-wrap break-All leading-relaxed">
+                  <pre className="json-formatter p-6 text-sm font-mono text-app-text whitespace-pre-wrap break-all leading-relaxed select-text">
                     {state.json
                       ? JSON.stringify(state.json.value, null, 2)
                       : "No data loaded"}
