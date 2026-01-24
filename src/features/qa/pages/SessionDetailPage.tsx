@@ -4,7 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { Copy, X, Settings2, Cpu, ChevronRight } from "lucide-react";
 import { useToastStore } from "../../../store/toast";
 import { useQaSessionStore } from "../../../store/qaSession";
-import { useSettingsStore } from "../../../store/settings";
+import {
+  PROVIDER_MODEL_OPTIONS,
+  useSettingsStore,
+} from "../../../store/settings";
 import { useLlmConfigBuilder } from "../../../hooks/useLlmConfig";
 import { useModelsQuery } from "../../../hooks/useLlmApi";
 import { isTauri } from "../../../utils/tauri";
@@ -49,6 +52,7 @@ export default function SessionDetailPage() {
     localModels,
     setModel,
     setLocalModels,
+    // apiKey,
     aiOutputLanguage,
   } = useSettingsStore();
   const buildConfig = useLlmConfigBuilder();
@@ -68,9 +72,11 @@ export default function SessionDetailPage() {
 
   const isLocalProvider =
     provider === "local" || provider === "ollama" || provider === "llama_cpp";
+  // const isOpenRouter = provider === "openrouter";
+  // const canFetchRemoteModels = isOpenRouter;
   const localConfig = useMemo(
     () => buildConfig({ maxTokens: 1024, temperature: 0.4 }),
-    [buildConfig]
+    [buildConfig],
   );
   const modelsQuery = useModelsQuery(localConfig, isLocalProvider);
 
@@ -97,8 +103,15 @@ export default function SessionDetailPage() {
     if (provider === "openai") {
       return ["gpt-4o", "gpt-4o-mini"];
     }
+    if (provider === "openrouter") {
+      const models =
+        (modelsQuery.data && modelsQuery.data.length > 0
+          ? modelsQuery.data
+          : PROVIDER_MODEL_OPTIONS.openrouter) ?? [];
+      return models.length > 0 ? models : ["custom-model"];
+    }
     return ["custom-model"];
-  }, [isLocalProvider, localModels, provider]);
+  }, [isLocalProvider, localModels, provider, modelsQuery.data]);
 
   const [curlModalOpen, setCurlModalOpen] = useState(false);
   const [curlCommand] = useState<string>("");
@@ -125,7 +138,7 @@ export default function SessionDetailPage() {
   const previewUrl = useMemo(() => extractPreviewUrl(session), [session]);
   const previewUrlValid = useMemo(
     () => (!isApiSession && previewUrl ? isValidUrl(previewUrl) : false),
-    [isApiSession, previewUrl]
+    [isApiSession, previewUrl],
   );
 
   const isRecording = recordingSessionId === sessionId;
@@ -199,7 +212,7 @@ export default function SessionDetailPage() {
 
         addToast(
           `Analyzed flow! Generated ${result.testCases.length} test cases.`,
-          "success"
+          "success",
         );
 
         setTimeout(() => {
@@ -295,13 +308,15 @@ export default function SessionDetailPage() {
       }
       setActiveRunId(null);
     }
+    // Reload screenshots and events after stopping recording
+    await Promise.all([reloadScreenshots(), loadEvents(true, true)]);
     addToast("QA recording stopped", "info");
   };
 
   const handleEndSession = async () => {
     if (!session) return;
     const confirmed = window.confirm(
-      "Are you sure you want to end this session?"
+      "Are you sure you want to end this session?",
     );
     if (!confirmed) return;
 
@@ -326,7 +341,7 @@ export default function SessionDetailPage() {
   const handleReplayEvent = (event: QaEvent) => {
     addToast(
       `Event replay is currently disabled (${event.event_type})`,
-      "info"
+      "info",
     );
   };
 
@@ -578,10 +593,10 @@ export default function SessionDetailPage() {
                     item.status === "success"
                       ? "border-emerald-500/30 bg-emerald-500/10"
                       : item.status === "error"
-                      ? "border-red-500/30 bg-red-500/10"
-                      : item.status === "running"
-                      ? "border-sky-500/30 bg-sky-500/10"
-                      : "border-app-border bg-black/20"
+                        ? "border-red-500/30 bg-red-500/10"
+                        : item.status === "running"
+                          ? "border-sky-500/30 bg-sky-500/10"
+                          : "border-app-border bg-black/20"
                   }`}>
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="text-[10px] uppercase tracking-wide opacity-60">
@@ -592,10 +607,10 @@ export default function SessionDetailPage() {
                         item.status === "success"
                           ? "text-emerald-400"
                           : item.status === "error"
-                          ? "text-red-400"
-                          : item.status === "running"
-                          ? "text-sky-400"
-                          : "text-app-subtext"
+                            ? "text-red-400"
+                            : item.status === "running"
+                              ? "text-sky-400"
+                              : "text-app-subtext"
                       }`}>
                       {item.status}
                     </span>

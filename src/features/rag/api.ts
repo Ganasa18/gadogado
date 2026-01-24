@@ -21,6 +21,14 @@ import type {
   OcrConfig,
   CacheConfig,
   ChatConfig,
+  // DB Connector types
+  DbConnection,
+  DbConnectionInput,
+  DbTestConnectionResult,
+  DbAllowlistProfile,
+  DbCollectionConfig,
+  DbQueryRequest,
+  DbQueryResponse,
 } from "./types";
 
 export async function createRagCollection(
@@ -496,4 +504,78 @@ export async function previewCsvRows(
 
 export async function analyzeCsv(filePath: string): Promise<string> {
   return await invoke<string>("csv_analyze", { filePath });
+}
+
+// ============================================================
+// DB CONNECTOR API
+// ============================================================
+
+export async function dbListConnections(): Promise<DbConnection[]> {
+  return await invoke<DbConnection[]>("db_list_connections");
+}
+
+export async function dbAddConnection(
+  input: DbConnectionInput
+): Promise<DbConnection> {
+  return await invoke<DbConnection>("db_add_connection", { input });
+}
+
+export async function dbTestConnection(
+  connId: number
+): Promise<DbTestConnectionResult> {
+  return await invoke<DbTestConnectionResult>("db_test_connection", { connId });
+}
+
+export async function dbTestConnectionInput(
+  input: DbConnectionInput
+): Promise<DbTestConnectionResult> {
+  return await invoke<DbTestConnectionResult>("db_test_connection_input", { input });
+}
+
+export async function dbDeleteConnection(connId: number): Promise<void> {
+  return await invoke<void>("db_delete_connection", { connId });
+}
+
+export async function dbListAllowlistProfiles(): Promise<DbAllowlistProfile[]> {
+  return await invoke<DbAllowlistProfile[]>("db_list_allowlist_profiles");
+}
+
+export async function dbListAllowlistedTables(
+  profileId: number
+): Promise<string[]> {
+  return await invoke<string[]>("db_list_allowlisted_tables", { profileId });
+}
+
+export async function ragCreateDbCollection(
+  name: string,
+  description: string | undefined,
+  config: DbCollectionConfig
+): Promise<RagCollection> {
+  return await invoke<RagCollection>("rag_create_db_collection", {
+    name,
+    description,
+    config,
+  });
+}
+
+export async function dbGetSelectedTables(
+  collectionId: number
+): Promise<string[]> {
+  return await invoke<string[]>("db_get_selected_tables", { collectionId });
+}
+
+export async function dbUpdateSelectedTables(
+  collectionId: number,
+  selectedTables: string[]
+): Promise<void> {
+  return await invoke<void>("db_update_selected_tables", {
+    collectionId,
+    selectedTables,
+  });
+}
+
+export async function dbQueryRag(
+  request: DbQueryRequest
+): Promise<DbQueryResponse> {
+  return await invoke<DbQueryResponse>("db_query_rag", { request });
 }

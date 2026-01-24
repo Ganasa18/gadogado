@@ -7,6 +7,15 @@ CREATE TABLE IF NOT EXISTS collections (
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 name TEXT NOT NULL UNIQUE,
 description TEXT,
+
+-- 'files' | 'db' - Collection kind for routing
+kind TEXT NOT NULL DEFAULT 'files',
+
+-- Configuration depends on kind:
+-- files: { }
+-- db: { db_conn_id, allowlist_profile_id, selected_tables, default_limit, max_limit, external_llm_policy }
+config_json TEXT NOT NULL DEFAULT '{}',
+
 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -23,6 +32,10 @@ quality_score REAL DEFAULT NULL,          -- Overall document quality (0.0-1.0)
 ocr_confidence REAL DEFAULT NULL,         -- Average OCR confidence (0.0-1.0)
 chunk_count INTEGER DEFAULT 0,            -- Total number of chunks
 warning_count INTEGER DEFAULT 0,          -- Number of quality warnings
+
+-- NEW: document-level metadata (JSON)
+meta_json TEXT NOT NULL DEFAULT '{}',
+
 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
 );
@@ -32,13 +45,22 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 doc_id INTEGER,
 content TEXT NOT NULL,
+
+-- NEW: optional for dedupe
+content_hash TEXT,
+
 page_number INTEGER,
 page_offset INTEGER,
 chunk_index INTEGER,
 token_count INTEGER,
 chunk_quality REAL DEFAULT NULL,          -- Chunk quality score (0.0-1.0)
 content_type TEXT DEFAULT NULL,           -- Detected content type (header, paragraph, list, table, code)
+
+-- NEW: chunk-scoped metadata (JSON)
+meta_json TEXT NOT NULL DEFAULT '{}',
+
 embedding_api BLOB,
+created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
 );
 
@@ -62,6 +84,77 @@ val_c REAL,
 FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
 );
 
+-- 6. Tabel Structured Rows (CSV/XLSX queryable rows)
+CREATE TABLE IF NOT EXISTS structured_rows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id INTEGER NOT NULL,
+
+  row_index INTEGER NOT NULL,
+
+  -- Common filter columns (fast WHERE)
+  category TEXT,
+  source TEXT,
+  title TEXT,
+  created_at_text TEXT,
+  created_at DATETIME,
+
+  -- Main text for retrieval/rerank if needed
+  content TEXT,
+
+  -- Full row payload
+  data_json TEXT NOT NULL,
+
+  created_at_ingested DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+-- 7. Telemetry table for retrieval debugging
+CREATE TABLE IF NOT EXISTS retrieval_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  collection_id INTEGER NOT NULL,
+  query_text TEXT NOT NULL,
+  query_hash TEXT,
+  intent TEXT NOT NULL,
+  retrieval_mode TEXT NOT NULL,
+
+  candidate_count INTEGER DEFAULT 0,
+  reranked_count INTEGER DEFAULT 0,
+  final_context_count INTEGER DEFAULT 0,
+
+  confidence REAL,
+  latency_ms INTEGER,
+
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+);
+
+-- 8. Full-text search (FTS5) for chunk content
+CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
+  content,
+  doc_id UNINDEXED
+);
+
+-- Keep FTS in sync with document_chunks via triggers
+CREATE TRIGGER IF NOT EXISTS document_chunks_ai AFTER INSERT ON document_chunks BEGIN
+  INSERT INTO document_chunks_fts(rowid, content, doc_id)
+  VALUES (new.id, new.content, new.doc_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS document_chunks_ad AFTER DELETE ON document_chunks BEGIN
+  INSERT INTO document_chunks_fts(document_chunks_fts, rowid, content, doc_id)
+  VALUES('delete', old.id, old.content, old.doc_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS document_chunks_au AFTER UPDATE OF content, doc_id ON document_chunks BEGIN
+  INSERT INTO document_chunks_fts(document_chunks_fts, rowid, content, doc_id)
+  VALUES('delete', old.id, old.content, old.doc_id);
+  INSERT INTO document_chunks_fts(rowid, content, doc_id)
+  VALUES (new.id, new.content, new.doc_id);
+END;
+
 -- ============================================================
 -- PERFORMANCE INDEXES
 -- ============================================================
@@ -81,6 +174,16 @@ CREATE INDEX IF NOT EXISTS idx_excel_data_val_b ON excel_data(val_b);
 
 -- Composite index for chunk retrieval with page info
 CREATE INDEX IF NOT EXISTS idx_document_chunks_doc_page ON document_chunks(doc_id, page_number);
+
+-- Structured rows indexes
+CREATE INDEX IF NOT EXISTS idx_structured_rows_doc_id ON structured_rows(doc_id);
+CREATE INDEX IF NOT EXISTS idx_structured_rows_category ON structured_rows(category);
+CREATE INDEX IF NOT EXISTS idx_structured_rows_source ON structured_rows(source);
+CREATE INDEX IF NOT EXISTS idx_structured_rows_doc_category ON structured_rows(doc_id, category);
+
+-- Retrieval telemetry indexes
+CREATE INDEX IF NOT EXISTS idx_retrieval_events_collection_time ON retrieval_events(collection_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_retrieval_events_intent ON retrieval_events(intent);
 
 -- ============================================================
 -- CONVERSATION MEMORY TABLES
@@ -166,3 +269,97 @@ CREATE TABLE IF NOT EXISTS retrieval_gaps (
 
 -- Index for gap analysis by collection
 CREATE INDEX IF NOT EXISTS idx_retrieval_gaps_collection_id ON retrieval_gaps(collection_id);
+
+-- ============================================================
+-- DB CONNECTOR TABLES (SQL-RAG Feature)
+-- ============================================================
+
+-- Database Connections for DB Connector Collections
+CREATE TABLE IF NOT EXISTS db_connections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  db_type TEXT NOT NULL,              -- postgres | sqlite
+  host TEXT,
+  port INTEGER,
+  database_name TEXT,
+  username TEXT,
+  password_ref TEXT,                  -- Reference to secure storage (NOT plaintext password)
+  ssl_mode TEXT DEFAULT 'require',
+  is_enabled INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- DB Allowlist Profiles (Security Boundary)
+-- Defines exactly what AI is allowed to query
+CREATE TABLE IF NOT EXISTS db_allowlist_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  rules_json TEXT NOT NULL DEFAULT '{}',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Example rules_json structure:
+-- {
+--   "allowed_tables": {
+--     "users_view": ["id", "username", "status", "created_at"],
+--     "orders_view": ["id", "user_id", "total", "created_at"]
+--   },
+--   "require_filters": {
+--     "users_view": ["id", "username"],
+--     "orders_view": ["user_id"]
+--   },
+--   "max_limit": 200,
+--   "allow_joins": false,
+--   "deny_keywords": ["password", "token", "secret"],
+--   "deny_statements": ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "PRAGMA", "ATTACH"]
+-- }
+
+-- Data Classification Rules (Prevent External Leakage)
+CREATE TABLE IF NOT EXISTS data_classification_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  allowlist_profile_id INTEGER NOT NULL,
+  match_json TEXT NOT NULL,           -- {table, column, level}
+  action TEXT NOT NULL,               -- redact | block_external | block_all
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (allowlist_profile_id) REFERENCES db_allowlist_profiles(id) ON DELETE CASCADE
+);
+
+-- SQL-RAG Query Sessions (Rate Limiting Support)
+CREATE TABLE IF NOT EXISTS db_query_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  collection_id INTEGER NOT NULL,
+  queries_count INTEGER NOT NULL DEFAULT 0,
+  started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+);
+
+-- SQL-RAG Query Audit Log (OWASP Logging)
+-- No sensitive payloads stored
+CREATE TABLE IF NOT EXISTS db_query_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  collection_id INTEGER NOT NULL,
+  user_query_hash TEXT,
+  intent TEXT NOT NULL,               -- sql_rag
+  plan_json TEXT NOT NULL,            -- structured query plan
+  compiled_sql TEXT NOT NULL,         -- parameterized SQL
+  params_json TEXT NOT NULL,          -- redacted if needed
+  row_count INTEGER DEFAULT 0,
+  latency_ms INTEGER,
+  llm_route TEXT NOT NULL,            -- local | external | blocked
+  sent_context_chars INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- DB CONNECTOR INDEXES
+-- ============================================================
+
+-- Index for collection kind filtering
+CREATE INDEX IF NOT EXISTS idx_collections_kind ON collections(kind);
+
+-- Index for DB audit queries
+CREATE INDEX IF NOT EXISTS idx_db_audit_collection ON db_query_audit(collection_id);
+CREATE INDEX IF NOT EXISTS idx_db_audit_time ON db_query_audit(created_at);

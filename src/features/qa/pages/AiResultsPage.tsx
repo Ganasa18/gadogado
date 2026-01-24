@@ -17,7 +17,10 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useToastStore } from "../../../store/toast";
-import { useSettingsStore } from "../../../store/settings";
+import {
+  PROVIDER_MODEL_OPTIONS,
+  useSettingsStore,
+} from "../../../store/settings";
 import { useLlmConfigBuilder } from "../../../hooks/useLlmConfig";
 import { useModelsQuery } from "../../../hooks/useLlmApi";
 import { isTauri } from "../../../utils/tauri";
@@ -55,6 +58,7 @@ export default function AiResultsPage() {
     model,
     localModels,
     setLocalModels,
+    // apiKey,
     aiOutputLanguage,
     setAiOutputLanguage,
   } = useSettingsStore();
@@ -70,7 +74,7 @@ export default function AiResultsPage() {
   const [manualTitle, setManualTitle] = useState("");
   const [selectedModel, setSelectedModel] = useState(model);
   const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(
-    null
+    null,
   );
 
   const { session, sessionLoading, sessionError, loadSession } = useQaSession({
@@ -80,9 +84,11 @@ export default function AiResultsPage() {
 
   const isLocalProvider =
     provider === "local" || provider === "ollama" || provider === "llama_cpp";
+  // const isOpenRouter = provider === "openrouter";
+  // const canFetchRemoteModels = isOpenRouter && apiKey.trim().length > 0;
   const localConfig = useMemo(
     () => buildConfig({ maxTokens: 1024, temperature: 0.4 }),
-    [buildConfig]
+    [buildConfig],
   );
   const modelsQuery = useModelsQuery(localConfig, isLocalProvider);
 
@@ -111,17 +117,20 @@ export default function AiResultsPage() {
       return localModels.length > 0 ? localModels : ["No models found"];
     }
     if (provider === "gemini") {
-      return [
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash-lite",
-        "gemini-3-flash-preview",
-      ];
+      return PROVIDER_MODEL_OPTIONS.gemini ?? ["gemini-2.0-flash"];
     }
     if (provider === "openai") {
-      return ["gpt-4o", "gpt-4o-mini"];
+      return PROVIDER_MODEL_OPTIONS.openai ?? ["gpt-4o", "gpt-4o-mini"];
+    }
+    if (provider === "openrouter") {
+      const models =
+        (modelsQuery.data && modelsQuery.data.length > 0
+          ? modelsQuery.data
+          : PROVIDER_MODEL_OPTIONS.openrouter) ?? [];
+      return models.length > 0 ? models : ["custom-model"];
     }
     return ["custom-model"];
-  }, [isLocalProvider, localModels, provider]);
+  }, [isLocalProvider, localModels, provider, modelsQuery.data]);
 
   const canGenerate =
     selectedModel !== "" && selectedModel !== "No models found";
@@ -132,7 +141,7 @@ export default function AiResultsPage() {
         acc[summary.checkpointId] = summary;
         return acc;
       },
-      {}
+      {},
     );
   }, [summaries]);
 
@@ -404,7 +413,7 @@ export default function AiResultsPage() {
                         <span>
                           {new Date(checkpoint.createdAt).toLocaleTimeString(
                             [],
-                            { hour: "2-digit", minute: "2-digit" }
+                            { hour: "2-digit", minute: "2-digit" },
                           )}
                         </span>
                       </div>

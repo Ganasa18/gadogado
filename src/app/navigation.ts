@@ -19,6 +19,7 @@ import {
   Download,
   LayoutDashboard,
   GitCompare,
+  DatabaseIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -180,6 +181,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: "/general",
         label: "General",
         icon: Settings,
+        section: "Configuration",
+      },
+      {
+        path: "/database",
+        label: "Database Setup",
+        icon: DatabaseIcon,
         section: "Configuration",
       },
       {

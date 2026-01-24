@@ -17,6 +17,7 @@ const providerLabels: Record<LLMProvider, LlmConfig["provider"]> = {
   gemini: "gemini",
   ollama: "ollama",
   llama_cpp: "llama_cpp",
+  openrouter: "openrouter",
   dll: "dll",
 };
 

@@ -12,6 +12,8 @@ pub enum LLMProvider {
     Ollama,
     #[serde(alias = "llama_cpp")]
     LlamaCpp,
+    #[serde(alias = "openrouter")]
+    OpenRouter,
     #[serde(alias = "dll", rename = "dll")]
     Dll,
 }
@@ -24,6 +26,7 @@ impl fmt::Display for LLMProvider {
             LLMProvider::Gemini => write!(f, "gemini"),
             LLMProvider::Ollama => write!(f, "ollama"),
             LLMProvider::LlamaCpp => write!(f, "llama_cpp"),
+            LLMProvider::OpenRouter => write!(f, "openrouter"),
             LLMProvider::Dll => write!(f, "dll"),
         }
     }

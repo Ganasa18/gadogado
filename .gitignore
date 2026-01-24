@@ -46,3 +46,12 @@ src-tauri/resources/models/base/facebook-opt-125m/special_tokens_map.json
 src-tauri/resources/models/base/facebook-opt-125m/tf_model.h5
 src-tauri/resources/models/base/facebook-opt-125m/tokenizer_config.json
 src-tauri/resources/models/base/facebook-opt-125m/vocab.json
+agent-md/model-destilation/task.md
+agent-md/model-destilation/01_IMPLEMENTATION_TRAINING.md
+agent-md/model-destilation/00_SQEMA_DB_DESTILATION.md
+agent-md/rag-sense-local/DB_CONNECTOR/DB_SCHEMA_RAG_SQL_CONNECTOR_FULL.md
+agent-md/rag-sense-local/DB_CONNECTOR/IMPLEMENTATION_PROGRESS_DB_SQL.md
+agent-md/rag-sense-local/DB_CONNECTOR/PROGRESS_RAG_SQL.md
+agent-md/rag-sense-local/RAG_QUERY_IMPROVE/DB_SCHEMA_V2.md
+agent-md/rag-sense-local/RAG_QUERY_IMPROVE/IMPLEMENTATION_PROGRESS_V2.md
+src-tauri/.env

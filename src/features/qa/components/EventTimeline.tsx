@@ -30,7 +30,7 @@ export default function EventTimeline({
   return (
     <div className="mt-3 max-h-[520px] overflow-y-auto">
       <div className="event-timeline px-6 py-4">
-        <h2 className="text-[10px] font-mono uppercase tracking-wide text-app-subtext mb-4 sticky top-0 bg-app-card py-2 -mx-6 px-6 border-b border-app-border">
+        <h2 className="text-[10px] font-mono uppercase tracking-wide text-app-subtext mb-4 sticky  bg-app-card py-2 -mx-6 px-6 border-b border-app-border">
           Activity Stream
         </h2>
         <div className="divide-y divide-app-border -mx-6">
@@ -118,7 +118,7 @@ export default function EventTimeline({
                       <div className="w-28 shrink-0">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium border ${getEventBadgeClasses(
-                            event.event_type
+                            event.event_type,
                           )}`}>
                           {event.event_type.toUpperCase()}
                         </span>

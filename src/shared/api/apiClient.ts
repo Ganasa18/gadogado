@@ -14,7 +14,14 @@ export interface LogEntry {
   message: string;
 }
 
-export type LlmProviderLabel = 'local' | 'openai' | 'gemini' | 'ollama' | 'llama_cpp' | 'dll';
+export type LlmProviderLabel =
+  | 'local'
+  | 'openai'
+  | 'gemini'
+  | 'ollama'
+  | 'llama_cpp'
+  | 'openrouter'
+  | 'dll';
 
 export interface LlmConfig {
   provider: LlmProviderLabel;
@@ -23,6 +30,55 @@ export interface LlmConfig {
   api_key: string | null;
   max_tokens: number;
   temperature: number;
+}
+
+export interface OpenRouterPricing {
+  prompt?: string;
+  completion?: string;
+  request?: string;
+  image?: string;
+}
+
+export interface OpenRouterArchitecture {
+  modality?: string;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  tokenizer?: string;
+  instruct_type?: string;
+}
+
+export interface OpenRouterTopProvider {
+  is_moderated?: boolean;
+  context_length?: number;
+  max_completion_tokens?: number;
+}
+
+export interface OpenRouterModel {
+  id: string;
+  canonical_slug?: string;
+  name?: string;
+  created?: number;
+  pricing?: OpenRouterPricing;
+  context_length?: number;
+  architecture?: OpenRouterArchitecture;
+  top_provider?: OpenRouterTopProvider;
+  per_request_limits?: unknown;
+  supported_parameters?: string[];
+  default_parameters?: unknown;
+  description?: string;
+  expiration_date?: string | null;
+  [key: string]: unknown;
+}
+
+export interface OpenRouterProvider {
+  id?: string;
+  name?: string;
+  slug?: string;
+  description?: string;
+  privacy_policy_url?: string;
+  terms_of_service_url?: string;
+  status_page_url?: string | null;
+  [key: string]: unknown;
 }
 
 export interface TranslatePayload {
@@ -65,6 +121,22 @@ export const llmApi = {
   },
   getModels: async (config: LlmConfig): Promise<string[]> => {
     const response = await apiClient.post<string[]>('/models', config);
+    return response.data;
+  },
+  getOpenRouterModels: async (config: LlmConfig): Promise<OpenRouterModel[]> => {
+    const response = await apiClient.post<OpenRouterModel[]>(
+      '/openrouter/models',
+      config
+    );
+    return response.data;
+  },
+  getOpenRouterProviders: async (
+    config: LlmConfig
+  ): Promise<OpenRouterProvider[]> => {
+    const response = await apiClient.post<OpenRouterProvider[]>(
+      '/openrouter/providers',
+      config
+    );
     return response.data;
   },
   getLogs: async (): Promise<LogEntry[]> => {

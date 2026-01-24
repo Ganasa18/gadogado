@@ -213,12 +213,14 @@ export default function Layout() {
                     : provider === "ollama"
                       ? "Ollama"
                       : provider === "llama_cpp"
-                        ? "Llama.cpp"
+                      ? "Llama.cpp"
                         : provider === "openai"
                           ? "OpenAI"
                           : provider === "gemini"
                             ? "Gemini"
-                            : "DLL"}
+                            : provider === "openrouter"
+                              ? "OpenRouter"
+                              : "DLL"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-[10px]">

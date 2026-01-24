@@ -2,6 +2,8 @@ export interface RagCollection {
   id: number;
   name: string;
   description: string | null;
+  kind: CollectionKind;
+  config_json: string;
   created_at: string;
 }
 
@@ -60,6 +62,8 @@ export interface RagQueryRequest {
   collection_id: number;
   query: string;
   top_k?: number;
+  candidate_k?: number;
+  rerank_k?: number;
 }
 
 export interface RagQueryResult {
@@ -338,4 +342,91 @@ export interface DocumentQualityAnalysis {
   total_tokens: number;
   extraction_quality: "Excellent" | "Good" | "Fair" | "Poor" | "Unknown";
   issues: string[];
+}
+
+// ============================================================
+// DB CONNECTOR TYPES
+// ============================================================
+
+export type CollectionKind = 'files' | 'db';
+
+export interface RagCollectionWithKind {
+  id: number;
+  name: string;
+  description: string | null;
+  kind: CollectionKind;
+  config_json: string;
+  created_at: string;
+}
+
+export interface DbConnection {
+  id: number;
+  name: string;
+  db_type: 'postgres' | 'sqlite';
+  host: string | null;
+  port: number | null;
+  database_name: string | null;
+  username: string | null;
+  password_ref: string | null;
+  ssl_mode: string;
+  is_enabled: boolean;
+  created_at: string;
+}
+
+export interface DbConnectionInput {
+  name: string;
+  db_type: 'postgres' | 'sqlite';
+  host?: string;
+  port?: number;
+  database_name?: string;
+  username?: string;
+  password: string;
+  ssl_mode?: string;
+}
+
+export interface DbAllowlistProfile {
+  id: number;
+  name: string;
+  description: string | null;
+  rules_json: string;
+  created_at: string;
+}
+
+export interface DbCollectionConfig {
+  db_conn_id: number;
+  allowlist_profile_id: number;
+  selected_tables: string[];
+  default_limit: number;
+  max_limit: number;
+  external_llm_policy: 'allow' | 'block' | 'local_only';
+}
+
+export interface DbTestConnectionResult {
+  success: boolean;
+  message: string;
+}
+
+export interface DbCitation {
+  table_name: string;
+  row_id: string;
+  columns: Record<string, unknown>;
+}
+
+export interface DbQueryTelemetry {
+  row_count: number;
+  latency_ms: number;
+  llm_route: 'local' | 'external' | 'blocked';
+}
+
+export interface DbQueryRequest {
+  collection_id: number;
+  query: string;
+  limit?: number;
+}
+
+export interface DbQueryResponse {
+  answer: string;
+  citations: DbCitation[];
+  telemetry: DbQueryTelemetry;
+  plan?: Record<string, unknown>;
 }

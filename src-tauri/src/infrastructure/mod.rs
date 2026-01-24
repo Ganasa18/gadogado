@@ -9,5 +9,7 @@ pub mod response;
 pub mod security;
 pub mod storage;
 
+pub mod bootstrap;
+
 // CSV preprocessing infrastructure
 pub mod csv;

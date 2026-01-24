@@ -185,6 +185,86 @@ async fn list_models(data: web::Data<HttpState>, config: web::Json<LLMConfig>) -
     }
 }
 
+async fn fetch_openrouter_list(
+    config: &LLMConfig,
+    path: &str,
+) -> std::result::Result<Vec<serde_json::Value>, String> {
+    let base_url = config.base_url.trim_end_matches('/');
+    if base_url.is_empty() {
+        return Err("OpenRouter base_url is empty".to_string());
+    }
+    let url = format!("{}/{}", base_url, path);
+
+    let mut request = reqwest::Client::new().get(&url);
+    if let Some(api_key) = &config.api_key {
+        request = request.bearer_auth(api_key);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("API error ({}): {}", status, text));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    let data = json["data"]
+        .as_array()
+        .ok_or_else(|| "Invalid response format: missing data array".to_string())?;
+
+    Ok(data.iter().cloned().collect())
+}
+
+#[post("/openrouter/providers")]
+async fn openrouter_providers(
+    data: web::Data<HttpState>,
+    config: web::Json<LLMConfig>,
+) -> impl Responder {
+    add_log(&data.logs, "INFO", "OpenRouter", "Fetching providers");
+
+    match fetch_openrouter_list(&config, "providers").await {
+        Ok(providers) => HttpResponse::Ok().json(providers),
+        Err(err) => {
+            add_log(
+                &data.logs,
+                "ERROR",
+                "OpenRouter",
+                &format!("Failed to fetch providers: {}", err),
+            );
+            HttpResponse::InternalServerError().body(err)
+        }
+    }
+}
+
+#[post("/openrouter/models")]
+async fn openrouter_models(
+    data: web::Data<HttpState>,
+    config: web::Json<LLMConfig>,
+) -> impl Responder {
+    add_log(&data.logs, "INFO", "OpenRouter", "Fetching models");
+
+    match fetch_openrouter_list(&config, "models").await {
+        Ok(models) => HttpResponse::Ok().json(models),
+        Err(err) => {
+            add_log(
+                &data.logs,
+                "ERROR",
+                "OpenRouter",
+                &format!("Failed to fetch models: {}", err),
+            );
+            HttpResponse::InternalServerError().body(err)
+        }
+    }
+}
+
 #[get("/logs")]
 async fn get_logs(data: web::Data<HttpState>) -> impl Responder {
     let logs = data.logs.lock().unwrap();
@@ -674,6 +754,8 @@ pub fn start_server(
                 .service(enhance)
                 .service(typegen)
                 .service(list_models)
+                .service(openrouter_providers)
+                .service(openrouter_models)
                 .service(get_logs)
                 .service(qa_proxy),
         )

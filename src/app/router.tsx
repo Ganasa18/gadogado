@@ -23,6 +23,7 @@ import {
   SessionManagerTab,
 } from "../features/qa";
 import MenuManagementTab from "../features/settings/pages/MenuManagementTab";
+import DatabaseTab from "../features/settings/pages/DatabaseTab";
 import {
   SetupTab,
   TrainTab,
@@ -107,6 +108,10 @@ export const router = createBrowserRouter([
       {
         path: "menu-management",
         element: <MenuManagementTab />,
+      },
+      {
+        path: "database",
+        element: <DatabaseTab />,
       },
       {
         path: "visualize-json",

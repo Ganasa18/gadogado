@@ -33,6 +33,7 @@ actix-web = "4"
 actix-cors = "0.6"
 sqlx = { version = "0.8", features = [
   "sqlite",
+  "postgres",
   "runtime-tokio-rustls",
   "macros",
   "chrono",

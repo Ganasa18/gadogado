@@ -1,11 +1,53 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Collection kind for routing between file-based and DB-based RAG
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CollectionKind {
+    Files,
+    Db,
+}
+
+impl Default for CollectionKind {
+    fn default() -> Self {
+        CollectionKind::Files
+    }
+}
+
+impl From<CollectionKind> for String {
+    fn from(kind: CollectionKind) -> String {
+        match kind {
+            CollectionKind::Files => "files".to_string(),
+            CollectionKind::Db => "db".to_string(),
+        }
+    }
+}
+
+impl From<String> for CollectionKind {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "db" => CollectionKind::Db,
+            _ => CollectionKind::Files,
+        }
+    }
+}
+
+impl From<&str> for CollectionKind {
+    fn from(s: &str) -> Self {
+        match s {
+            "db" => CollectionKind::Db,
+            _ => CollectionKind::Files,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RagCollection {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
+    pub kind: CollectionKind,
+    pub config_json: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -150,4 +192,119 @@ pub struct RetrievalGapInput {
     pub max_confidence: Option<f64>,
     pub avg_confidence: Option<f64>,
     pub gap_type: Option<String>,
+}
+
+// ============================================================
+// DB CONNECTOR ENTITIES
+// ============================================================
+
+/// Database connection configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DbConnection {
+    pub id: i64,
+    pub name: String,
+    pub db_type: String, // postgres | sqlite
+    pub host: Option<String>,
+    pub port: Option<i32>,
+    pub database_name: Option<String>,
+    pub username: Option<String>,
+    pub password_ref: Option<String>, // Reference to secure storage
+    pub ssl_mode: String,
+    pub is_enabled: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Input for creating a new DB connection
+#[derive(Debug, Deserialize)]
+pub struct DbConnectionInput {
+    pub name: String,
+    pub db_type: String,
+    pub host: Option<String>,
+    pub port: Option<i32>,
+    pub database_name: Option<String>,
+    pub username: Option<String>,
+    pub password: String, // Will be stored as reference
+    pub ssl_mode: Option<String>,
+}
+
+/// Allowlist profile defining security boundaries
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DbAllowlistProfile {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub rules_json: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Configuration for DB collections
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DbCollectionConfig {
+    pub db_conn_id: i64,
+    pub allowlist_profile_id: i64,
+    pub selected_tables: Vec<String>,
+    pub default_limit: i32,
+    pub max_limit: i32,
+    pub external_llm_policy: String,
+}
+
+/// SQL-RAG query plan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryPlan {
+    pub mode: String, // exact | list | aggregate
+    pub table: String,
+    pub select: Vec<String>,
+    pub filters: Vec<QueryFilter>,
+    pub limit: i32,
+    pub order_by: Option<OrderBy>,
+    pub joins: Option<Vec<Join>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryFilter {
+    pub column: String,
+    pub operator: String, // eq | in | gte | lte | between | like
+    pub values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderBy {
+    pub column: String,
+    pub direction: String, // asc | desc
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Join {
+    pub table: String,
+    pub on_column: String,
+    pub join_type: String, // inner | left
+}
+
+/// SQL-RAG response
+#[derive(Debug, Serialize)]
+pub struct SqlRagResponse {
+    pub answer: String,
+    pub citations: Vec<DbCitation>,
+    pub telemetry: QueryTelemetry,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DbCitation {
+    pub table_name: String,
+    pub row_id: String,
+    pub columns: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueryTelemetry {
+    pub row_count: usize,
+    pub latency_ms: i64,
+    pub llm_route: String, // local | external | blocked
+}
+
+/// Test connection result
+#[derive(Debug, Serialize)]
+pub struct TestConnectionResult {
+    pub success: bool,
+    pub message: String,
 }
