@@ -16,6 +16,8 @@ pub enum LLMProvider {
     OpenRouter,
     #[serde(alias = "dll", rename = "dll")]
     Dll,
+    #[serde(alias = "cli_proxy", rename = "cli_proxy")]
+    CliProxy,
 }
 
 impl fmt::Display for LLMProvider {
@@ -28,6 +30,7 @@ impl fmt::Display for LLMProvider {
             LLMProvider::LlamaCpp => write!(f, "llama_cpp"),
             LLMProvider::OpenRouter => write!(f, "openrouter"),
             LLMProvider::Dll => write!(f, "dll"),
+            LLMProvider::CliProxy => write!(f, "cli_proxy"),
         }
     }
 }

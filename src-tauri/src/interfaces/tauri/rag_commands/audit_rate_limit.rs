@@ -1,34 +1,29 @@
-use crate::application::use_cases::allowlist_validator::AllowlistValidator;
-use crate::application::use_cases::audit_service::{AuditLogEntry, AuditService};
-use crate::application::use_cases::chunking::{ChunkConfig, ChunkEngine, ChunkStrategy};
-use crate::application::use_cases::data_protection::{ExternalLlmPolicy, LlmRoute};
-use crate::application::use_cases::prompt_engine::{PromptEngine, VerificationResult};
-use crate::application::use_cases::rag_analytics::{AnalyticsEvent, AnalyticsSummary};
-use crate::application::use_cases::rag_config::{
-    CacheConfig, ChatConfig, ChunkingConfig, ConfigValidation, EmbeddingConfig, FeedbackRating,
-    FeedbackStats, OcrConfig, RagConfig, RetrievalConfig, UserFeedback,
-};
-use crate::application::use_cases::rag_ingestion::OcrResult;
-use crate::application::use_cases::rag_validation::{
-    RagValidationSuite, ValidationCase, ValidationOptions, ValidationReport,
-};
-use crate::application::use_cases::rate_limiter::{RateLimitResult, RateLimitStatus, RateLimiter};
-use crate::application::use_cases::sql_compiler::{DbType, SqlCompiler};
-use crate::application::use_cases::sql_rag_router::SqlRagRouter;
-use crate::domain::error::Result;
-use crate::domain::rag_entities::{
-    DbAllowlistProfile, DbConnection, DbConnectionInput, RagCollection, RagCollectionInput,
-    RagDocument, RagDocumentChunk, RagExcelData,
-};
+//! Audit and Rate Limit Commands for SQL-RAG
+//!
+//! This module provides Tauri commands for:
+//! - Fetching audit logs for DB collections
+//! - Checking rate limit status per collection
+
+use crate::application::use_cases::rate_limiter::RateLimitStatus;
 use crate::interfaces::http::add_log;
-use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 use tauri::State;
 
+// ============================================================================
+// Constants
+// ============================================================================
 
-use super::types::*;
+/// Log context for SQL-RAG operations
+const LOG_CONTEXT: &str = "SQL-RAG";
+
+/// Default limit for audit log queries
+const DEFAULT_AUDIT_LIMIT: i32 = 50;
+
+/// Minimum allowed limit for audit log queries
+const MIN_AUDIT_LIMIT: i32 = 1;
+
+/// Maximum allowed limit for audit log queries
+const MAX_AUDIT_LIMIT: i32 = 500;
 
 #[tauri::command]
 pub async fn db_get_audit_recent(
@@ -37,12 +32,12 @@ pub async fn db_get_audit_recent(
     limit: Option<i32>,
 ) -> std::result::Result<Vec<crate::application::use_cases::audit_service::AuditLogRecord>, String>
 {
-    let limit = limit.unwrap_or(50).clamp(1, 500);
+    let limit = limit.unwrap_or(DEFAULT_AUDIT_LIMIT).clamp(MIN_AUDIT_LIMIT, MAX_AUDIT_LIMIT);
 
     add_log(
         &state.logs,
         "INFO",
-        "SQL-RAG",
+        LOG_CONTEXT,
         &format!(
             "Fetching audit logs for collection {}, limit={}",
             collection_id, limit
@@ -59,7 +54,7 @@ pub async fn db_get_audit_recent(
             add_log(
                 &state.logs,
                 "ERROR",
-                "SQL-RAG",
+                LOG_CONTEXT,
                 &format!("Failed to fetch audit logs: {}", e),
             );
             Err(e.to_string())
@@ -77,7 +72,7 @@ pub async fn db_get_rate_limit_status(
     add_log(
         &state.logs,
         "INFO",
-        "SQL-RAG",
+        LOG_CONTEXT,
         &format!(
             "Fetching rate limit status for collection {}",
             collection_id
@@ -90,7 +85,7 @@ pub async fn db_get_rate_limit_status(
             add_log(
                 &state.logs,
                 "ERROR",
-                "SQL-RAG",
+                LOG_CONTEXT,
                 &format!("Failed to fetch rate limit status: {}", e),
             );
             Err(e.to_string())

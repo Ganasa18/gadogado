@@ -1,34 +1,244 @@
+//! DB Query RAG Command
+//!
+//! This module provides the main SQL-RAG query command that:
+//! - Validates queries against allowlist
+//! - Compiles natural language to SQL
+//! - Executes queries with rate limiting
+//! - Returns citations and telemetry
+
 use crate::application::use_cases::allowlist_validator::AllowlistValidator;
 use crate::application::use_cases::audit_service::{AuditLogEntry, AuditService};
-use crate::application::use_cases::chunking::{ChunkConfig, ChunkEngine, ChunkStrategy};
 use crate::application::use_cases::data_protection::{ExternalLlmPolicy, LlmRoute};
-use crate::application::use_cases::prompt_engine::{PromptEngine, VerificationResult};
-use crate::application::use_cases::rag_analytics::{AnalyticsEvent, AnalyticsSummary};
-use crate::application::use_cases::rag_config::{
-    CacheConfig, ChatConfig, ChunkingConfig, ConfigValidation, EmbeddingConfig, FeedbackRating,
-    FeedbackStats, OcrConfig, RagConfig, RetrievalConfig, UserFeedback,
-};
-use crate::application::use_cases::rag_ingestion::OcrResult;
-use crate::application::use_cases::rag_validation::{
-    RagValidationSuite, ValidationCase, ValidationOptions, ValidationReport,
-};
-use crate::application::use_cases::rate_limiter::{RateLimitResult, RateLimitStatus, RateLimiter};
+use crate::application::use_cases::rate_limiter::RateLimitResult;
 use crate::application::use_cases::sql_compiler::{DbType, SqlCompiler};
 use crate::application::use_cases::sql_rag_router::SqlRagRouter;
 use crate::domain::error::Result;
-use crate::domain::rag_entities::{
-    DbAllowlistProfile, DbConnection, DbConnectionInput, RagCollection, RagCollectionInput,
-    RagDocument, RagDocumentChunk, RagExcelData,
-};
+use crate::domain::rag_entities::QueryPlan;
 use crate::interfaces::http::add_log;
-use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::State;
 
-
 use super::types::*;
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// Default allowlist profile ID when not specified in collection config
+const DEFAULT_ALLOWLIST_PROFILE_ID: i64 = 1;
+
+/// Default row limit when not specified in collection config
+const DEFAULT_LIMIT: i32 = 50;
+
+/// Maximum query length to display in logs (truncated with "...")
+const MAX_QUERY_LOG_LENGTH: usize = 50;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Logs an error and returns the provided error
+fn log_and_return_error(
+    logs: &Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
+    context: &str,
+    message: &str,
+    error: crate::domain::error::AppError,
+) -> crate::domain::error::AppError {
+    add_log(logs, "ERROR", context, message);
+    error
+}
+
+/// Formats validation errors into a human-readable string
+fn format_validation_errors<E>(errors: &[E]) -> String
+where
+    E: std::fmt::Debug,
+{
+    errors
+        .iter()
+        .map(|e| format!("{:?}", e))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Truncates query string for logging purposes
+fn truncate_query_for_log(query: &str) -> String {
+    if query.len() > MAX_QUERY_LOG_LENGTH {
+        format!("{}...", &query[..MAX_QUERY_LOG_LENGTH])
+    } else {
+        query.to_string()
+    }
+}
+
+/// Checks rate limit and returns error if exceeded
+fn check_rate_limit(
+    rate_limit_result: &RateLimitResult,
+    logs: &Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
+) -> Result<()> {
+    match rate_limit_result {
+        RateLimitResult::Allowed => {
+            add_log(logs, "DEBUG", "SQL-RAG", "Rate limit check passed");
+            Ok(())
+        }
+        RateLimitResult::Exceeded {
+            retry_after_seconds,
+        } => {
+            add_log(
+                logs,
+                "WARN",
+                "SQL-RAG",
+                &format!("Rate limit exceeded, retry after {}s", retry_after_seconds),
+            );
+            Err(crate::domain::error::AppError::ValidationError(format!(
+                "Rate limit exceeded. Please try again in {} seconds.",
+                retry_after_seconds
+            )))
+        }
+        RateLimitResult::CooldownActive {
+            retry_after_seconds,
+        } => {
+            add_log(
+                logs,
+                "WARN",
+                "SQL-RAG",
+                &format!("Cooldown active, retry after {}s", retry_after_seconds),
+            );
+            Err(crate::domain::error::AppError::ValidationError(format!(
+                "Too many blocked queries. Please try again in {} seconds.",
+                retry_after_seconds
+            )))
+        }
+    }
+}
+
+/// Parses collection configuration JSON with error logging
+fn parse_collection_config(
+    config_json: &str,
+    logs: &Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
+) -> Result<serde_json::Value> {
+    serde_json::from_str(config_json).map_err(|e| {
+        log_and_return_error(
+            logs,
+            "SQL-RAG",
+            &format!("Failed to parse collection config: {}", e),
+            crate::domain::error::AppError::ValidationError(format!(
+                "Invalid collection config: {}",
+                e
+            )),
+        )
+    })
+}
+
+/// Extracts configuration values from collection config JSON
+struct CollectionConfig {
+    db_conn_id: i64,
+    allowlist_profile_id: i64,
+    default_limit: i32,
+    selected_tables: Vec<String>,
+    external_llm_policy: ExternalLlmPolicy,
+}
+
+impl CollectionConfig {
+    fn from_json(config: &serde_json::Value) -> Result<Self> {
+        let db_conn_id = config["db_conn_id"].as_i64().ok_or_else(|| {
+            crate::domain::error::AppError::ValidationError(
+                "Missing db_conn_id in collection config".to_string(),
+            )
+        })?;
+
+        let allowlist_profile_id = config["allowlist_profile_id"]
+            .as_i64()
+            .unwrap_or(DEFAULT_ALLOWLIST_PROFILE_ID);
+
+        let default_limit = config["default_limit"]
+            .as_i64()
+            .unwrap_or(DEFAULT_LIMIT as i64) as i32;
+
+        let selected_tables = config["selected_tables"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let external_llm_policy: ExternalLlmPolicy = config["external_llm_policy"]
+            .as_str()
+            .unwrap_or("always_block")
+            .into();
+
+        Ok(Self {
+            db_conn_id,
+            allowlist_profile_id,
+            default_limit,
+            selected_tables,
+            external_llm_policy,
+        })
+    }
+}
+
+/// Validates query plan against allowlist with error handling
+fn validate_query_plan(
+    validator: &AllowlistValidator,
+    plan: &QueryPlan,
+    logs: &Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
+) -> Result<QueryPlan> {
+    let validation_result = validator.validate_plan(plan);
+
+    if !validation_result.is_valid {
+        let error_messages = format_validation_errors(&validation_result.errors);
+
+        add_log(
+            logs,
+            "WARN",
+            "SQL-RAG",
+            &format!("Query validation failed: {:?}", error_messages),
+        );
+
+        return Err(crate::domain::error::AppError::ValidationError(format!(
+            "Query validation failed: {}",
+            error_messages
+        )));
+    }
+
+    // Apply limit adjustment if needed
+    Ok(if let Some(adjusted_limit) = validation_result.adjusted_limit {
+        let mut adjusted_plan = plan.clone();
+        adjusted_plan.limit = adjusted_limit;
+        adjusted_plan
+    } else {
+        plan.clone()
+    })
+}
+
+/// Validates compiled SQL with error handling
+fn validate_compiled_sql(
+    validator: &AllowlistValidator,
+    compiled: &crate::application::use_cases::sql_compiler::CompiledQuery,
+    logs: &Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
+) -> Result<()> {
+    let sql_validation = validator.validate_sql(&compiled.sql);
+
+    if !sql_validation.is_valid {
+        let error_messages = format_validation_errors(&sql_validation.errors);
+
+        add_log(
+            logs,
+            "WARN",
+            "SQL-RAG",
+            &format!("SQL validation failed: {:?}", error_messages),
+        );
+
+        return Err(crate::domain::error::AppError::ValidationError(format!(
+            "SQL validation failed: {}",
+            error_messages
+        )));
+    }
+
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn db_query_rag(
@@ -44,11 +254,7 @@ pub async fn db_query_rag(
         &format!(
             "Processing query for collection {}: {}",
             request.collection_id,
-            if request.query.len() > 50 {
-                format!("{}...", &request.query[..50])
-            } else {
-                request.query.clone()
-            }
+            truncate_query_for_log(&request.query)
         ),
     );
 
@@ -67,39 +273,7 @@ pub async fn db_query_rag(
             e
         })?;
 
-    match rate_limit_result {
-        RateLimitResult::Allowed => {
-            add_log(&state.logs, "DEBUG", "SQL-RAG", "Rate limit check passed");
-        }
-        RateLimitResult::Exceeded {
-            retry_after_seconds,
-        } => {
-            add_log(
-                &state.logs,
-                "WARN",
-                "SQL-RAG",
-                &format!("Rate limit exceeded, retry after {}s", retry_after_seconds),
-            );
-            return Err(crate::domain::error::AppError::ValidationError(format!(
-                "Rate limit exceeded. Please try again in {} seconds.",
-                retry_after_seconds
-            )));
-        }
-        RateLimitResult::CooldownActive {
-            retry_after_seconds,
-        } => {
-            add_log(
-                &state.logs,
-                "WARN",
-                "SQL-RAG",
-                &format!("Cooldown active, retry after {}s", retry_after_seconds),
-            );
-            return Err(crate::domain::error::AppError::ValidationError(format!(
-                "Too many blocked queries. Please try again in {} seconds.",
-                retry_after_seconds
-            )));
-        }
-    }
+    check_rate_limit(&rate_limit_result, &state.logs)?;
 
     // Step 1: Get the collection and verify it's a DB collection
     let collection = match state
@@ -137,38 +311,13 @@ pub async fn db_query_rag(
     }
 
     // Step 2: Parse collection config
-    let config: serde_json::Value = serde_json::from_str(&collection.config_json).map_err(|e| {
-        add_log(
-            &state.logs,
-            "ERROR",
-            "SQL-RAG",
-            &format!("Failed to parse collection config: {}", e),
-        );
-        crate::domain::error::AppError::ValidationError(format!("Invalid collection config: {}", e))
-    })?;
-
-    let db_conn_id = config["db_conn_id"].as_i64().ok_or_else(|| {
-        crate::domain::error::AppError::ValidationError(
-            "Missing db_conn_id in collection config".to_string(),
-        )
-    })?;
-
-    let allowlist_profile_id = config["allowlist_profile_id"].as_i64().unwrap_or(1);
-    let default_limit = config["default_limit"].as_i64().unwrap_or(50) as i32;
-    let selected_tables: Vec<String> = config["selected_tables"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    let config_json = parse_collection_config(&collection.config_json, &state.logs)?;
+    let collection_config = CollectionConfig::from_json(&config_json)?;
 
     // Step 3: Get DB connection
     let db_conn = state
         .rag_repository
-        .get_db_connection(db_conn_id)
+        .get_db_connection(collection_config.db_conn_id)
         .await
         .map_err(|e| {
             add_log(
@@ -183,7 +332,7 @@ pub async fn db_query_rag(
     // Step 4: Get allowlist profile
     let allowlist_profile = state
         .rag_repository
-        .get_allowlist_profile(allowlist_profile_id)
+        .get_allowlist_profile(collection_config.allowlist_profile_id)
         .await
         .map_err(|e| {
             add_log(
@@ -196,18 +345,21 @@ pub async fn db_query_rag(
         })?;
 
     // Step 5: Create router and generate query plan
-    let router =
-        SqlRagRouter::from_profile(&allowlist_profile, selected_tables.clone()).map_err(|e| {
-            add_log(
-                &state.logs,
-                "ERROR",
-                "SQL-RAG",
-                &format!("Failed to create SQL router: {}", e),
-            );
-            e
-        })?;
+    let router = SqlRagRouter::from_profile(
+        &allowlist_profile,
+        collection_config.selected_tables.clone(),
+    )
+    .map_err(|e| {
+        add_log(
+            &state.logs,
+            "ERROR",
+            "SQL-RAG",
+            &format!("Failed to create SQL router: {}", e),
+        );
+        e
+    })?;
 
-    let effective_limit = request.limit.unwrap_or(default_limit);
+    let effective_limit = request.limit.unwrap_or(collection_config.default_limit);
     let plan = router
         .generate_plan(&request.query, effective_limit)
         .map_err(|e| {
@@ -242,43 +394,15 @@ pub async fn db_query_rag(
             );
             e
         })?
-        .with_selected_tables(selected_tables.clone());
+        .with_selected_tables(collection_config.selected_tables.clone());
 
-    let validation_result = validator.validate_plan(&plan);
-    if !validation_result.is_valid {
-        let error_messages: Vec<String> = validation_result
-            .errors
-            .iter()
-            .map(|e| format!("{}: {}", e.code, e.message))
-            .collect();
-
-        add_log(
-            &state.logs,
-            "WARN",
-            "SQL-RAG",
-            &format!("Query validation failed: {:?}", error_messages),
-        );
-
-        return Err(crate::domain::error::AppError::ValidationError(format!(
-            "Query validation failed: {}",
-            error_messages.join("; ")
-        )));
-    }
-
-    // Apply limit adjustment if needed
-    let final_plan = if let Some(adjusted_limit) = validation_result.adjusted_limit {
-        let mut adjusted_plan = plan.clone();
-        adjusted_plan.limit = adjusted_limit;
-        adjusted_plan
-    } else {
-        plan.clone()
-    };
+    let final_plan = validate_query_plan(&validator, &plan, &state.logs)?;
 
     // Step 7: Compile query plan to SQL
     let db_type = match db_conn.db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => DbType::Postgres,
         "sqlite" => DbType::Sqlite,
-        _ => DbType::Postgres, // Default to Postgres
+        _ => DbType::Postgres,
     };
 
     let compiler = SqlCompiler::new(db_type);
@@ -293,26 +417,7 @@ pub async fn db_query_rag(
     })?;
 
     // Step 8: Validate compiled SQL
-    let sql_validation = validator.validate_sql(&compiled.sql);
-    if !sql_validation.is_valid {
-        let error_messages: Vec<String> = sql_validation
-            .errors
-            .iter()
-            .map(|e| format!("{}: {}", e.code, e.message))
-            .collect();
-
-        add_log(
-            &state.logs,
-            "WARN",
-            "SQL-RAG",
-            &format!("SQL validation failed: {:?}", error_messages),
-        );
-
-        return Err(crate::domain::error::AppError::ValidationError(format!(
-            "SQL validation failed: {}",
-            error_messages.join("; ")
-        )));
-    }
+    validate_compiled_sql(&validator, &compiled, &state.logs)?;
 
     add_log(
         &state.logs,
@@ -370,19 +475,15 @@ pub async fn db_query_rag(
     } else {
         format!(
             "Found {} result(s) from table '{}'. {}",
-            query_result.row_count, final_plan.table, compiled.description
+            query_result.row_count,
+            final_plan.table,
+            compiled.description
         )
     };
 
     let latency_ms = start.elapsed().as_millis() as i64;
 
-    // Step 12: Determine LLM route based on external LLM policy
-    let external_llm_policy: ExternalLlmPolicy = config["external_llm_policy"]
-        .as_str()
-        .unwrap_or("always_block")
-        .into();
-
-    // For DB collections, always use local route (data stays local)
+    // Step 12: Determine LLM route (always local for DB collections)
     let llm_route = LlmRoute::Local;
 
     add_log(
@@ -408,12 +509,12 @@ pub async fn db_query_rag(
         row_count: query_result.row_count as i32,
         latency_ms,
         llm_route: llm_route.as_str().to_string(),
-        sent_context_chars: 0, // DB collections don't send context to external LLM
-        selected_tables: serde_json::to_string(&selected_tables).ok(),
+        sent_context_chars: 0,
+        selected_tables: serde_json::to_string(&collection_config.selected_tables).ok(),
         table_selection_blocked: false,
     };
 
-    // Log audit entry (non-blocking - log errors but don't fail the query)
+    // Log audit entry (non-blocking)
     if let Err(e) = state.audit_service.log_query(audit_entry).await {
         add_log(
             &state.logs,

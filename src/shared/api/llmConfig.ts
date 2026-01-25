@@ -19,6 +19,7 @@ const providerLabels: Record<LLMProvider, LlmConfig["provider"]> = {
   llama_cpp: "llama_cpp",
   openrouter: "openrouter",
   dll: "dll",
+  cli_proxy: "cli_proxy",
 };
 
 export function createLlmConfig(

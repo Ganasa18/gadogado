@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { KeyboardEvent, RefObject } from "react";
 import { Loader2, Send } from "lucide-react";
 import { cn } from "../../../utils/cn";
+import type { ChatMode } from "../types";
 
 export function RagChatComposer(props: {
   input: string;
@@ -10,8 +11,9 @@ export function RagChatComposer(props: {
   selectedCollectionId: number | null;
   isLoading: boolean;
   onSend: () => void;
+  chatMode: ChatMode;
 }) {
-  const { input, setInput, inputRef, selectedCollectionId, isLoading, onSend } =
+  const { input, setInput, inputRef, selectedCollectionId, isLoading, onSend, chatMode } =
     props;
 
   const handleKeyDown = useCallback(
@@ -30,7 +32,7 @@ export function RagChatComposer(props: {
         <div
           className={cn(
             "absolute -inset-0.5 rounded-2xl opacity-0 transition-opacity duration-300",
-            selectedCollectionId ? "group-hover:opacity-100" : "group-hover:opacity-0",
+            (chatMode === "free" || selectedCollectionId) ? "group-hover:opacity-100" : "group-hover:opacity-0",
           )}
         />
 
@@ -42,11 +44,13 @@ export function RagChatComposer(props: {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                selectedCollectionId
-                  ? "Ask follow-up questions..."
-                  : "Select a collection to start..."
+                chatMode === "free"
+                  ? "Ask me anything..."
+                  : selectedCollectionId
+                    ? "Ask follow-up questions..."
+                    : "Select a collection to start..."
               }
-              disabled={!selectedCollectionId || isLoading}
+              disabled={(chatMode === "rag" && !selectedCollectionId) || isLoading}
               className="w-full bg-transparent border-none text-sm outline-none px-3 py-2 text-app-text disabled:opacity-50 disabled:cursor-not-allowed resize-none placeholder:text-app-text-muted/60"
               rows={1}
               style={{ minHeight: "44px", maxHeight: "150px" }}
@@ -55,7 +59,7 @@ export function RagChatComposer(props: {
 
           <button
             onClick={onSend}
-            disabled={!input.trim() || !selectedCollectionId || isLoading}
+            disabled={!input.trim() || (chatMode === "rag" && !selectedCollectionId) || isLoading}
             className="px-4 bg-app-accent text-white rounded-lg hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center shadow-md shadow-app-accent/20">
             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
           </button>

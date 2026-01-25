@@ -286,6 +286,7 @@ CREATE TABLE IF NOT EXISTS db_connections (
   password_ref TEXT,                  -- Reference to secure storage (NOT plaintext password)
   ssl_mode TEXT DEFAULT 'require',
   is_enabled INTEGER NOT NULL DEFAULT 1,
+  config_json TEXT,                   -- JSON configuration for selected tables/columns
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

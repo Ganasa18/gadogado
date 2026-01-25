@@ -106,6 +106,9 @@ async fn apply_schema(pool: &SqlitePool) -> Result<(), String> {
     ensure_column(pool, "document_chunks", "content_hash", "TEXT").await?;
     ensure_column(pool, "document_chunks", "page_offset", "INTEGER").await?;
 
+    // Initialize default allowlist profile for DB connections
+    init_default_allowlist_profile(pool).await?;
+
     Ok(())
 }
 
@@ -230,6 +233,7 @@ async fn recreate_db(db_path: &Path) -> Result<(), String> {
     let pool = connect_pool(db_path).await?;
     apply_schema(&pool).await?;
     backfill_chunks_fts(&pool).await?;
+    init_default_allowlist_profile(&pool).await?;
     set_user_version(&pool, RAG_SCHEMA_VERSION).await?;
     Ok(())
 }
@@ -268,6 +272,60 @@ async fn backfill_chunks_fts(pool: &SqlitePool) -> Result<(), String> {
     .await
     .map_err(|e| format!("Failed to backfill document_chunks_fts: {e}"))?;
 
+    Ok(())
+}
+
+/// Initialize the default allowlist profile if it doesn't exist.
+/// This ensures that profile ID=1 is always available for DB collections.
+async fn init_default_allowlist_profile(pool: &SqlitePool) -> Result<(), String> {
+    // Check if db_allowlist_profiles table exists
+    let table_exists: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='db_allowlist_profiles'",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Failed to check db_allowlist_profiles table existence: {e}"))?;
+
+    if table_exists.is_none() {
+        // Table doesn't exist yet, will be created by schema
+        return Ok(());
+    }
+
+    // Check if any profiles exist
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM db_allowlist_profiles"
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("Failed to check allowlist profiles: {e}"))?;
+
+    if count > 0 {
+        tracing::debug!("Allowlist profiles already exist (count={}), skipping initialization", count);
+        return Ok(());
+    }
+
+    // Create default profile with security rules
+    let default_rules = serde_json::json!({
+        "allowed_tables": {},
+        "require_filters": {},
+        "max_limit": 200,
+        "allow_joins": false,
+        "deny_keywords": ["password", "token", "secret", "api_key", "credential"],
+        "deny_statements": ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "PRAGMA", "ATTACH", "GRANT", "REVOKE"]
+    });
+
+    sqlx::query(
+        "INSERT INTO db_allowlist_profiles (name, description, rules_json)
+         VALUES (?, ?, ?)"
+    )
+    .bind("Default Profile")
+    .bind("Default security profile for DB connections. Configure allowed tables before use.")
+    .bind(default_rules.to_string())
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to create default allowlist profile: {e}"))?;
+
+    tracing::info!("Created default allowlist profile with ID=1");
     Ok(())
 }
 

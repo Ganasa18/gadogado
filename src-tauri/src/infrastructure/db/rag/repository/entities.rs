@@ -1,7 +1,7 @@
 use crate::domain::rag_entities::DocumentWarning;
 use crate::domain::rag_entities::{
-    CollectionQualityMetrics, DbAllowlistProfile, DbConnection, RagCollection, RagDocument,
-    RagDocumentChunk, RagExcelData, RetrievalGap,
+    CollectionQualityMetrics, ColumnInfo, DbAllowlistProfile, DbConnection, RagCollection,
+    RagDocument, RagDocumentChunk, RagExcelData, RetrievalGap,
 };
 
 #[derive(sqlx::FromRow)]
@@ -230,6 +230,7 @@ pub(super) struct DbConnectionEntity {
     password_ref: Option<String>,
     ssl_mode: String,
     is_enabled: i64,
+    config_json: Option<String>,
     created_at: String,
 }
 
@@ -246,6 +247,7 @@ impl From<DbConnectionEntity> for DbConnection {
             password_ref: entity.password_ref,
             ssl_mode: entity.ssl_mode,
             is_enabled: entity.is_enabled != 0,
+            config_json: entity.config_json,
             created_at: chrono::DateTime::parse_from_rfc3339(&entity.created_at)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now()),
@@ -272,6 +274,27 @@ impl From<DbAllowlistProfileEntity> for DbAllowlistProfile {
             created_at: chrono::DateTime::parse_from_rfc3339(&entity.created_at)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now()),
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub(super) struct ColumnInfoEntity {
+    column_name: String,
+    data_type: String,
+    is_nullable: bool,
+    is_primary_key: bool,
+    position: i32,
+}
+
+impl From<ColumnInfoEntity> for ColumnInfo {
+    fn from(entity: ColumnInfoEntity) -> Self {
+        ColumnInfo {
+            column_name: entity.column_name,
+            data_type: entity.data_type,
+            is_nullable: entity.is_nullable,
+            is_primary_key: entity.is_primary_key,
+            position: entity.position,
         }
     }
 }

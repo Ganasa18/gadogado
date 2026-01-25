@@ -30,6 +30,7 @@ import {
   EvaluateTab,
   ExportTab,
 } from "../features/model-distillation";
+import TableSetupPage from "../features/settings/pages/TableSetupPage";
 
 export const router = createBrowserRouter([
   {
@@ -112,6 +113,10 @@ export const router = createBrowserRouter([
       {
         path: "database",
         element: <DatabaseTab />,
+      },
+      {
+        path: "database/setup/:id",
+        element: <TableSetupPage />,
       },
       {
         path: "visualize-json",

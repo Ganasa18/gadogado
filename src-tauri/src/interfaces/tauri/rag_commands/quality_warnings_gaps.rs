@@ -1,32 +1,15 @@
-use crate::application::use_cases::allowlist_validator::AllowlistValidator;
-use crate::application::use_cases::audit_service::{AuditLogEntry, AuditService};
-use crate::application::use_cases::chunking::{ChunkConfig, ChunkEngine, ChunkStrategy};
-use crate::application::use_cases::data_protection::{ExternalLlmPolicy, LlmRoute};
-use crate::application::use_cases::prompt_engine::{PromptEngine, VerificationResult};
-use crate::application::use_cases::rag_analytics::{AnalyticsEvent, AnalyticsSummary};
-use crate::application::use_cases::rag_config::{
-    CacheConfig, ChatConfig, ChunkingConfig, ConfigValidation, EmbeddingConfig, FeedbackRating,
-    FeedbackStats, OcrConfig, RagConfig, RetrievalConfig, UserFeedback,
-};
-use crate::application::use_cases::rag_ingestion::OcrResult;
-use crate::application::use_cases::rag_validation::{
-    RagValidationSuite, ValidationCase, ValidationOptions, ValidationReport,
-};
-use crate::application::use_cases::rate_limiter::{RateLimitResult, RateLimitStatus, RateLimiter};
-use crate::application::use_cases::sql_compiler::{DbType, SqlCompiler};
-use crate::application::use_cases::sql_rag_router::SqlRagRouter;
-use crate::domain::error::Result;
-use crate::domain::rag_entities::{
-    DbAllowlistProfile, DbConnection, DbConnectionInput, RagCollection, RagCollectionInput,
-    RagDocument, RagDocumentChunk, RagExcelData,
-};
-use crate::interfaces::http::add_log;
-use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::sync::Arc;
-use std::time::Instant;
-use tauri::State;
+//! Quality, Warnings, and Retrieval Gaps Commands
+//!
+//! This module provides Tauri commands for:
+//! - Document warning management
+//! - Low quality document detection
+//! - Retrieval gap tracking and analytics
 
+use crate::domain::error::Result;
+use crate::domain::rag_entities::RagDocument;
+use crate::interfaces::http::add_log;
+use std::sync::Arc;
+use tauri::State;
 
 use super::types::*;
 

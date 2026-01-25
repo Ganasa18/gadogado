@@ -21,7 +21,8 @@ export type LlmProviderLabel =
   | 'ollama'
   | 'llama_cpp'
   | 'openrouter'
-  | 'dll';
+  | 'dll'
+  | 'cli_proxy';
 
 export interface LlmConfig {
   provider: LlmProviderLabel;

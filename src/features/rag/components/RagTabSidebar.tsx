@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import {
   ArrowRight,
+  ChevronDown,
   Database,
   FileText,
   Loader2,
@@ -10,7 +11,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { CollectionKind, DbAllowlistProfile, DbConnection, RagCollection } from "../types";
+import type {
+  CollectionKind,
+  DbAllowlistProfile,
+  DbConnection,
+  RagCollection,
+} from "../types";
 
 type Props = {
   collections: RagCollection[];
@@ -98,12 +104,12 @@ export function RagTabSidebar(props: Props) {
       },
       {
         value: "db",
-        label: "Database Connector",
+        label: "Database",
         description: "Connect to external database (PostgreSQL/SQLite)",
         icon: <Database className="w-5 h-5" />,
       },
     ],
-    []
+    [],
   );
 
   return (
@@ -145,11 +151,15 @@ export function RagTabSidebar(props: Props) {
                         ? "border-app-accent bg-app-accent/10"
                         : "border-app-border bg-app-card hover:border-app-accent/40"
                     }`}>
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex justify-between items-center gap-2 mb-1">
                       {kind.icon}
-                      <span className="text-sm font-medium text-app-text">{kind.label}</span>
+                      <span className="text-sm font-medium text-app-text">
+                        {kind.label}
+                      </span>
                     </div>
-                    <p className="text-[10px] text-app-text-muted">{kind.description}</p>
+                    <p className="text-[10px] text-app-text-muted">
+                      {/* {kind.description} */}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -159,14 +169,17 @@ export function RagTabSidebar(props: Props) {
               <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
                 <Shield className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
                 <div className="text-xs text-yellow-600 dark:text-yellow-500">
-                  <strong>Important:</strong> DB Collections are specialized for database queries only and cannot be
-                  used with files (PDF, CSV, etc.).
+                  <strong>Important:</strong> DB Collections are specialized for
+                  database queries only and cannot be used with files (PDF, CSV,
+                  etc.).
                 </div>
               </div>
             )}
 
             <div>
-              <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">Name</label>
+              <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">
+                Name
+              </label>
               <input
                 value={newCollectionName}
                 onChange={(e) => onChangeNewCollectionName(e.target.value)}
@@ -181,7 +194,9 @@ export function RagTabSidebar(props: Props) {
               </label>
               <textarea
                 value={newCollectionDescription}
-                onChange={(e) => onChangeNewCollectionDescription(e.target.value)}
+                onChange={(e) =>
+                  onChangeNewCollectionDescription(e.target.value)
+                }
                 placeholder="What's this collection for?"
                 rows={2}
                 className="w-full bg-app-card border border-app-border rounded-md px-3 py-2 text-sm outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 transition-all resize-none"
@@ -194,21 +209,25 @@ export function RagTabSidebar(props: Props) {
                   <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">
                     Security Profile
                   </label>
-                  <select
-                    value={allowlistProfileId}
-                    onChange={(e) => {
-                      const id = parseInt(e.target.value);
-                      onChangeAllowlistProfileId(id);
-                      onChangeDbConnId(null);
-                      onChangeSelectedTables([]);
-                    }}
-                    className="w-full bg-app-card border border-app-border rounded-md px-3 py-2 text-sm outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 transition-all">
-                    {allowlistProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} - {profile.description || "No description"}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative group">
+                    <select
+                      value={allowlistProfileId}
+                      onChange={(e) => {
+                        const id = parseInt(e.target.value);
+                        onChangeAllowlistProfileId(id);
+                        onChangeDbConnId(null);
+                        onChangeSelectedTables([]);
+                      }}
+                      className="w-full appearance-none bg-app-card border border-app-border text-app-text text-sm rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500/50 transition-colors cursor-pointer">
+                      {allowlistProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} -{" "}
+                          {profile.description || "No description"}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-app-subtext pointer-events-none group-hover:text-emerald-500 transition-colors" />
+                  </div>
                   <p className="text-[10px] text-app-text-muted mt-1">
                     Controls which tables, columns, and filters are allowed
                   </p>
@@ -218,18 +237,25 @@ export function RagTabSidebar(props: Props) {
                   <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">
                     Database Connection
                   </label>
-                  <div className="flex items-center gap-2 mb-2">
-                    <select
-                      value={dbConnId ?? ""}
-                      onChange={(e) => onChangeDbConnId(e.target.value ? parseInt(e.target.value) : null)}
-                      className="flex-1 bg-app-card border border-app-border rounded-md px-3 py-2 text-sm outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 transition-all">
-                      <option value="">Select a connection...</option>
-                      {dbConnections.map((conn) => (
-                        <option key={conn.id} value={conn.id}>
-                          {conn.name} ({conn.db_type.toUpperCase()})
-                        </option>
-                      ))}
-                    </select>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="relative group flex-1">
+                      <select
+                        value={dbConnId ?? ""}
+                        onChange={(e) =>
+                          onChangeDbConnId(
+                            e.target.value ? parseInt(e.target.value) : null,
+                          )
+                        }
+                        className="w-full appearance-none bg-app-card border border-app-border text-app-text text-sm rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500/50 transition-colors cursor-pointer">
+                        <option value="">Select a connection...</option>
+                        {dbConnections.map((conn) => (
+                          <option key={conn.id} value={conn.id}>
+                            {conn.name} ({conn.db_type.toUpperCase()})
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-app-subtext pointer-events-none group-hover:text-emerald-500 transition-colors" />
+                    </div>
                     <button
                       onClick={onOpenDbConnections}
                       className="p-2 border border-app-border rounded-md text-app-text-muted hover:text-app-text hover:border-app-accent/50 transition-all"
@@ -240,7 +266,9 @@ export function RagTabSidebar(props: Props) {
                   {dbConnections.length === 0 && !isLoadingDbData && (
                     <p className="text-xs text-app-text-muted">
                       No connections configured.{" "}
-                      <button onClick={onOpenDbConnections} className="text-app-accent hover:underline">
+                      <button
+                        onClick={onOpenDbConnections}
+                        className="text-app-accent hover:underline">
                         Create one →
                       </button>
                     </p>
@@ -251,9 +279,13 @@ export function RagTabSidebar(props: Props) {
                   <div>
                     <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">
                       Select Tables
-                      <span className="ml-1 text-app-accent">({selectedTables.length} selected)</span>
+                      <span className="ml-1 text-app-accent">
+                        ({selectedTables.length} selected)
+                      </span>
                     </label>
-                    <p className="text-[10px] text-app-text-muted mb-2">Choose which tables this collection can query</p>
+                    <p className="text-[10px] text-app-text-muted mb-2">
+                      Choose which tables this collection can query
+                    </p>
                     <div className="border border-app-border rounded-lg p-2 max-h-32 overflow-y-auto bg-app-card">
                       {availableTables.map((table) => (
                         <label
@@ -264,9 +296,14 @@ export function RagTabSidebar(props: Props) {
                             checked={selectedTables.includes(table)}
                             onChange={(e) => {
                               if (e.currentTarget.checked) {
-                                onChangeSelectedTables([...selectedTables, table]);
+                                onChangeSelectedTables([
+                                  ...selectedTables,
+                                  table,
+                                ]);
                               } else {
-                                onChangeSelectedTables(selectedTables.filter((t) => t !== table));
+                                onChangeSelectedTables(
+                                  selectedTables.filter((t) => t !== table),
+                                );
                               }
                             }}
                             className="rounded border-app-border"
@@ -276,7 +313,9 @@ export function RagTabSidebar(props: Props) {
                       ))}
                     </div>
                     {selectedTables.length === 0 && (
-                      <p className="text-[10px] text-red-500 mt-1">At least one table must be selected</p>
+                      <p className="text-[10px] text-red-500 mt-1">
+                        At least one table must be selected
+                      </p>
                     )}
                   </div>
                 )}
@@ -292,11 +331,18 @@ export function RagTabSidebar(props: Props) {
                       max={200}
                       value={defaultLimit}
                       onChange={(e) =>
-                        onChangeDefaultLimit(Math.min(200, Math.max(1, parseInt(e.target.value) || 50)))
+                        onChangeDefaultLimit(
+                          Math.min(
+                            200,
+                            Math.max(1, parseInt(e.target.value) || 50),
+                          ),
+                        )
                       }
                       className="w-full bg-app-card border border-app-border rounded-md px-3 py-2 text-sm outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 transition-all"
                     />
-                    <p className="text-[10px] text-app-text-muted mt-1">Maximum rows per query (max 200)</p>
+                    <p className="text-[10px] text-app-text-muted mt-1">
+                      Maximum rows per query (max 200)
+                    </p>
                   </div>
                 )}
               </>
@@ -308,10 +354,15 @@ export function RagTabSidebar(props: Props) {
                 disabled={
                   isCreatingCollection ||
                   !newCollectionName.trim() ||
-                  (collectionKind === "db" && (!dbConnId || selectedTables.length === 0))
+                  (collectionKind === "db" &&
+                    (!dbConnId || selectedTables.length === 0))
                 }
                 className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-app-accent text-white rounded-md text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">
-                {isCreatingCollection ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                {isCreatingCollection ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-4 h-4" />
+                )}
                 Create {collectionKind === "db" ? "DB " : ""}Collection
               </button>
               <button
@@ -326,7 +377,9 @@ export function RagTabSidebar(props: Props) {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {collections.length === 0 ? (
-          <div className="text-sm text-app-text-muted">No collections yet. Create one to start importing.</div>
+          <div className="text-sm text-app-text-muted">
+            No collections yet. Create one to start importing.
+          </div>
         ) : (
           collections.map((collection) => (
             <button
@@ -340,7 +393,9 @@ export function RagTabSidebar(props: Props) {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-app-text truncate">{collection.name}</span>
+                    <span className="text-sm font-medium text-app-text truncate">
+                      {collection.name}
+                    </span>
                     <span
                       className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
                         collection.kind === "db"
@@ -351,15 +406,20 @@ export function RagTabSidebar(props: Props) {
                     </span>
                   </div>
                   {collection.description && (
-                    <div className="text-xs text-app-text-muted mt-1">{collection.description}</div>
+                    <div className="text-xs text-app-text-muted mt-1">
+                      {collection.description}
+                    </div>
                   )}
                   <div className="text-[10px] text-app-text-muted mt-2">
                     Added{" "}
-                    {new Date(collection.created_at).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
+                    {new Date(collection.created_at).toLocaleDateString(
+                      undefined,
+                      {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      },
+                    )}
                   </div>
                 </div>
                 <button

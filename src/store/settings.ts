@@ -8,7 +8,8 @@ export type LLMProvider =
   | "ollama"
   | "llama_cpp"
   | "openrouter"
-  | "dll";
+  | "dll"
+  | "cli_proxy";
 
 export type EmbeddingProvider = "local";
 
@@ -125,6 +126,7 @@ const PROVIDER_BASE_URLS: Record<LLMProvider, string> = {
   llama_cpp: "http://localhost:8080/v1",
   openrouter: "https://openrouter.ai/api/v1",
   dll: "",
+  cli_proxy: "http://127.0.0.1:8317/v1",
 };
 
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
@@ -135,6 +137,7 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   llama_cpp: "llama-3-8b-instruct",
   openrouter: "anthropic/claude-sonnet-4",
   dll: "custom-model",
+  cli_proxy: "gpt-5.1-codex",
 };
 
 // Optional model pick-lists used by some UI screens.
@@ -222,6 +225,12 @@ export const PROVIDER_CONFIGS: Record<LLMProvider, ProviderConfig> = {
     requiresApiKey: true,
     label: "DLL",
   },
+  cli_proxy: {
+    baseUrl: PROVIDER_BASE_URLS.cli_proxy,
+    defaultModel: DEFAULT_MODELS.cli_proxy,
+    requiresApiKey: true,
+    label: "CLI Proxy",
+  },
 };
 
 export const isKeylessProvider = (provider: LLMProvider): boolean => {
@@ -235,6 +244,7 @@ const normalizeProvider = (value?: string): LLMProvider => {
   if (value === "llama_cpp") return "llama_cpp";
   if (value === "openrouter") return "openrouter";
   if (value === "dll") return "dll";
+  if (value === "cli_proxy") return "cli_proxy";
   return "local";
 };
 

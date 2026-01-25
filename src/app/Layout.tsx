@@ -79,6 +79,8 @@ export default function Layout() {
   const rawPath = location.pathname === "/" ? "/general" : location.pathname;
   const activePath = rawPath.startsWith("/qa/session/")
     ? "/qa/history"
+    : rawPath.startsWith("/database/setup/")
+    ? "/database"
     : rawPath;
 
   useEffect(() => {

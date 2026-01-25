@@ -1,3 +1,5 @@
+export type ChatMode = 'rag' | 'free';
+
 export interface RagCollection {
   id: number;
   name: string;
@@ -204,6 +206,8 @@ export interface ChatMessage {
   timestamp: Date;
   sources?: RagQueryResult[];
   query?: string;
+  /** Telemetry for DB collection queries */
+  telemetry?: DbQueryTelemetry;
 }
 
 export interface RagWebImportRequest {
@@ -370,6 +374,7 @@ export interface DbConnection {
   password_ref: string | null;
   ssl_mode: string;
   is_enabled: boolean;
+  config_json: string | null;
   created_at: string;
 }
 
@@ -392,6 +397,20 @@ export interface DbAllowlistProfile {
   created_at: string;
 }
 
+export interface TableInfo {
+  table_name: string;
+  table_schema: string | null;
+  row_count: number | null;
+}
+
+export interface ColumnInfo {
+  column_name: string;
+  data_type: string;
+  is_nullable: boolean;
+  is_primary_key: boolean;
+  position: number;
+}
+
 export interface DbCollectionConfig {
   db_conn_id: number;
   allowlist_profile_id: number;
@@ -399,6 +418,13 @@ export interface DbCollectionConfig {
   default_limit: number;
   max_limit: number;
   external_llm_policy: 'allow' | 'block' | 'local_only';
+}
+
+export interface DbConnectionConfig {
+  profile_id: number | null;
+  selected_tables: string[];
+  selected_columns: { [tableName: string]: string[] };
+  updated_at?: string;
 }
 
 export interface DbTestConnectionResult {
@@ -429,4 +455,16 @@ export interface DbQueryResponse {
   citations: DbCitation[];
   telemetry: DbQueryTelemetry;
   plan?: Record<string, unknown>;
+}
+
+export interface RateLimitStatus {
+  collection_id: number;
+  queries_count: number;
+  max_queries_per_hour: number;
+  blocked_count: number;
+  is_rate_limited: boolean;
+  is_cooldown_active: boolean;
+  retry_after_seconds: number | null;
+  session_started_at: string;
+  last_used_at: string;
 }

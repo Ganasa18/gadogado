@@ -142,4 +142,144 @@ impl RagRepository {
 
         Ok(result.into())
     }
+
+    /// Create a new allowlist profile
+    pub async fn create_allowlist_profile(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        rules_json: &str,
+    ) -> Result<DbAllowlistProfile> {
+        let result = sqlx::query_as::<_, DbAllowlistProfileEntity>(
+            r#"
+            INSERT INTO db_allowlist_profiles (name, description, rules_json)
+            VALUES (?, ?, ?)
+            RETURNING *
+            "#
+        )
+        .bind(name)
+        .bind(description)
+        .bind(rules_json)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create allowlist profile: {}", e))
+        })?;
+
+        Ok(result.into())
+    }
+
+    /// Update an existing allowlist profile
+    pub async fn update_allowlist_profile(
+        &self,
+        id: i64,
+        name: Option<&str>,
+        description: Option<Option<&str>>,
+        rules_json: Option<&str>,
+    ) -> Result<DbAllowlistProfile> {
+        // Build dynamic query based on what's being updated
+        let mut query_parts = Vec::new();
+        let mut param_index = 1;
+
+        if name.is_some() {
+            query_parts.push(format!("name = ?{}", param_index));
+            param_index += 1;
+        }
+        if description.is_some() {
+            query_parts.push(format!("description = ?{}", param_index));
+            param_index += 1;
+        }
+        if rules_json.is_some() {
+            query_parts.push(format!("rules_json = ?{}", param_index));
+            param_index += 1;
+        }
+
+        if query_parts.is_empty() {
+            return Err(AppError::ValidationError("No fields to update".to_string()));
+        }
+
+        let set_clause = query_parts.join(", ");
+        let query_str = format!(
+            "UPDATE db_allowlist_profiles SET {} WHERE id = ? RETURNING *",
+            set_clause
+        );
+
+        let mut query = sqlx::query_as::<_, DbAllowlistProfileEntity>(&query_str);
+
+        if let Some(n) = name {
+            query = query.bind(n);
+        }
+        if let Some(d) = description {
+            query = query.bind(d);
+        }
+        if let Some(r) = rules_json {
+            query = query.bind(r);
+        }
+        query = query.bind(id);
+
+        let result = query
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to update allowlist profile: {}", e))
+            })?;
+
+        match result {
+            Some(profile) => Ok(profile.into()),
+            None => Err(AppError::NotFound(format!(
+                "Allowlist profile not found: {}",
+                id
+            ))),
+        }
+    }
+
+    /// Delete an allowlist profile (protects default profile id=1)
+    pub async fn delete_allowlist_profile(&self, id: i64) -> Result<u64> {
+        // Prevent deletion of default profile
+        if id == 1 {
+            return Err(AppError::ValidationError(
+                "Cannot delete default profile (id=1)".to_string(),
+            ));
+        }
+
+        let result = sqlx::query("DELETE FROM db_allowlist_profiles WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to delete allowlist profile: {}", e))
+            })?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound(format!(
+                "Allowlist profile not found: {}",
+                id
+            )));
+        }
+
+        Ok(result.rows_affected())
+    }
+
+    /// Update connection configuration JSON
+    pub async fn update_db_connection_config(
+        &self,
+        id: i64,
+        config_json: &str,
+    ) -> Result<DbConnection> {
+        let result = sqlx::query_as::<_, DbConnectionEntity>(
+            "UPDATE db_connections SET config_json = ? WHERE id = ? RETURNING *"
+        )
+        .bind(config_json)
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to update connection config: {}", e))
+        })?;
+
+        match result {
+            Some(conn) => Ok(conn.into()),
+            None => Err(AppError::NotFound(format!("DB connection not found: {}", id))),
+        }
+    }
 }

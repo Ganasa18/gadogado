@@ -26,9 +26,11 @@ import type {
   DbConnectionInput,
   DbTestConnectionResult,
   DbAllowlistProfile,
+  TableInfo,
   DbCollectionConfig,
   DbQueryRequest,
   DbQueryResponse,
+  RateLimitStatus,
 } from "./types";
 
 export async function createRagCollection(
@@ -536,6 +538,10 @@ export async function dbDeleteConnection(connId: number): Promise<void> {
   return await invoke<void>("db_delete_connection", { connId });
 }
 
+export async function dbListTables(connId: number): Promise<TableInfo[]> {
+  return await invoke<TableInfo[]>("db_list_tables", { connId });
+}
+
 export async function dbListAllowlistProfiles(): Promise<DbAllowlistProfile[]> {
   return await invoke<DbAllowlistProfile[]>("db_list_allowlist_profiles");
 }
@@ -578,4 +584,14 @@ export async function dbQueryRag(
   request: DbQueryRequest
 ): Promise<DbQueryResponse> {
   return await invoke<DbQueryResponse>("db_query_rag", { request });
+}
+
+// ============================================================
+// RATE LIMIT & AUDIT API
+// ============================================================
+
+export async function dbGetRateLimitStatus(
+  collectionId: number
+): Promise<RateLimitStatus> {
+  return await invoke<RateLimitStatus>("db_get_rate_limit_status", { collection_id: collectionId });
 }

@@ -13,7 +13,7 @@
 //! - All connections use read-only access where possible
 
 use crate::domain::error::{AppError, Result};
-use crate::domain::rag_entities::{DbConnection, DbConnectionInput, TestConnectionResult};
+use crate::domain::rag_entities::{ColumnInfo, DbConnection, DbConnectionInput, TableInfo, TestConnectionResult};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use sqlx::{Column, Pool, Postgres, Row};
 use std::collections::HashMap;
@@ -79,8 +79,10 @@ impl DbConnectionManager {
         }
     }
 
-    /// Resolve password from environment variable reference
+    /// Resolve password from various storage methods
     /// Format: "env:DB_PASSWORD_MYDB" -> reads from DB_PASSWORD_MYDB env var
+    /// Format: "keychain:key_name" -> reads from OS keychain
+    /// Format: "plain:password" -> returns password directly (development only)
     fn resolve_password(password_ref: &str) -> Result<String> {
         if password_ref.starts_with("env:") {
             let env_key = &password_ref[4..];
@@ -91,14 +93,50 @@ impl DbConnectionManager {
                 ))
             })
         } else if password_ref.starts_with("keychain:") {
-            // TODO: Implement keychain integration
-            Err(AppError::ValidationError(
-                "Keychain password storage not yet implemented".to_string(),
-            ))
+            let key_name = &password_ref[9..];
+            let entry = keyring::Entry::new(key_name, "gadogado").map_err(|e| {
+                AppError::ValidationError(format!("Failed to access keychain: {}", e))
+            })?;
+            entry.get_password().map_err(|e| {
+                AppError::ValidationError(format!(
+                    "Failed to retrieve password from keychain: {}",
+                    e
+                ))
+            })
+        } else if password_ref.starts_with("plain:") {
+            // Plain text password storage (development only)
+            Ok(password_ref[6..].to_string())
         } else {
-            // Direct password (for testing only, not recommended)
+            // Fallback: treat as direct password
             Ok(password_ref.to_string())
         }
+    }
+
+    /// Store password in OS keychain
+    pub fn store_password_in_keychain(key_name: &str, password: &str) -> Result<()> {
+        tracing::info!("[Keychain] Attempting to store password for key: {}", key_name);
+
+        // For Windows Credential Manager compatibility: Entry::new(service, username)
+        // service = key_name, username = "gadogado" (constant)
+        let entry = keyring::Entry::new(key_name, "gadogado").map_err(|e| {
+            tracing::error!("[Keychain] Failed to create entry for key {}: {}", key_name, e);
+            AppError::ValidationError(format!("Failed to create keychain entry: {}", e))
+        })?;
+        entry.set_password(password).map_err(|e| {
+            tracing::error!("[Keychain] Failed to set password for key {}: {}", key_name, e);
+            AppError::ValidationError(format!("Failed to store password in keychain: {}", e))
+        })?;
+        tracing::info!("[Keychain] Successfully stored password for key: {} (service={}, user=gadogado)", key_name, key_name);
+        Ok(())
+    }
+
+    /// Delete password from OS keychain
+    pub fn delete_password_from_keychain(key_name: &str) -> Result<()> {
+        // Must use same parameters as store
+        if let Ok(entry) = keyring::Entry::new(key_name, "gadogado") {
+            let _ = entry.delete_credential(); // Ignore error if credential doesn't exist
+        }
+        Ok(())
     }
 
     /// Parse SSL mode string to PgSslMode
@@ -371,6 +409,147 @@ impl DbConnectionManager {
                 ),
             },
         }
+    }
+
+    /// List tables from a database connection
+    /// Returns table names, schema (for PostgreSQL), and approximate row counts
+    pub async fn list_tables(&self, conn: &DbConnection) -> Result<Vec<TableInfo>> {
+        let pool = self.get_pool(conn).await?;
+
+        let query = r#"
+            SELECT
+                t.table_name,
+                t.table_schema,
+                c.reltuples::bigint AS row_count
+            FROM information_schema.tables t
+            LEFT JOIN pg_class c ON c.relname = t.table_name
+            WHERE t.table_schema = 'public'
+                AND t.table_type = 'BASE TABLE'
+            ORDER BY t.table_name
+        "#;
+
+        let rows = tokio::time::timeout(
+            Duration::from_secs(self.config.query_timeout_secs),
+            sqlx::query(query).fetch_all(&pool),
+        )
+        .await
+        .map_err(|_| {
+            AppError::DatabaseError(format!(
+                "Table listing timed out after {} seconds",
+                self.config.query_timeout_secs
+            ))
+        })?
+        .map_err(|e| AppError::DatabaseError(format!("Failed to list tables: {}", e)))?;
+
+        let mut tables = Vec::new();
+        for row in rows {
+            let table_name: String = row.try_get("table_name").map_err(|e| {
+                AppError::DatabaseError(format!("Failed to parse table_name: {}", e))
+            })?;
+
+            let table_schema: Option<String> = row.try_get("table_schema").ok();
+            let row_count: Option<i64> = row.try_get("row_count").ok();
+
+            tables.push(TableInfo {
+                table_name,
+                table_schema,
+                row_count,
+            });
+        }
+
+        info!(
+            "Listed {} tables for connection '{}'",
+            tables.len(),
+            conn.name
+        );
+
+        Ok(tables)
+    }
+
+    /// List columns for a specific table
+    pub async fn list_columns(
+        &self,
+        conn: &DbConnection,
+        table_name: &str,
+    ) -> Result<Vec<ColumnInfo>> {
+        let pool = self.get_pool(conn).await?;
+
+        let query = r#"
+            SELECT
+                column_name,
+                data_type,
+                is_nullable = 'YES' as is_nullable,
+                COALESCE(
+                    EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                            ON tc.constraint_name = kcu.constraint_name
+                            AND tc.table_schema = kcu.table_schema
+                        WHERE tc.table_schema = 'public'
+                            AND tc.table_name = $1
+                            AND kcu.column_name = columns.column_name
+                            AND tc.constraint_type = 'PRIMARY KEY'
+                    ),
+                    false
+                ) as is_primary_key,
+                ordinal_position as position
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+            ORDER BY ordinal_position
+        "#;
+
+        let rows = tokio::time::timeout(
+            Duration::from_secs(self.config.query_timeout_secs),
+            sqlx::query(query).bind(table_name).fetch_all(&pool),
+        )
+        .await
+        .map_err(|_| {
+            AppError::DatabaseError(format!(
+                "Column listing timed out after {} seconds",
+                self.config.query_timeout_secs
+            ))
+        })?
+        .map_err(|e| AppError::DatabaseError(format!("Failed to list columns: {}", e)))?;
+
+        let mut columns = Vec::new();
+        for row in rows {
+            let column_name: String = row.try_get("column_name").map_err(|e| {
+                AppError::DatabaseError(format!("Failed to parse column_name: {}", e))
+            })?;
+
+            let data_type: String = row.try_get("data_type").map_err(|e| {
+                AppError::DatabaseError(format!("Failed to parse data_type: {}", e))
+            })?;
+
+            let is_nullable: bool = row.try_get("is_nullable").map_err(|e| {
+                AppError::DatabaseError(format!("Failed to parse is_nullable: {}", e))
+            })?;
+
+            let is_primary_key: bool = row.try_get("is_primary_key").map_err(|e| {
+                AppError::DatabaseError(format!("Failed to parse is_primary_key: {}", e))
+            })?;
+
+            let position: i32 = row.try_get("position").map_err(|e| {
+                AppError::DatabaseError(format!("Failed to parse position: {}", e))
+            })?;
+
+            columns.push(ColumnInfo {
+                column_name,
+                data_type,
+                is_nullable,
+                is_primary_key,
+                position,
+            });
+        }
+
+        info!(
+            "Listed {} columns for table '{}' on connection '{}'",
+            columns.len(),
+            table_name,
+            conn.name
+        );
+
+        Ok(columns)
     }
 
     /// Execute a SELECT query and return results as JSON

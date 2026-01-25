@@ -116,13 +116,16 @@ export default function GeneralTab() {
 
   const isLocalProvider =
     provider === "local" || provider === "ollama" || provider === "llama_cpp";
+  const isCliProxyProvider = provider === "cli_proxy";
+  const shouldFetchModels = isLocalProvider || isCliProxyProvider;
   const isOpenRouter = provider === "openrouter";
   const hasApiKey = apiKey.trim().length > 0;
   const requiresApiKey =
     provider === "openai" ||
     provider === "gemini" ||
     provider === "openrouter" ||
-    provider === "dll";
+    provider === "dll" ||
+    provider === "cli_proxy";
 
   // Provider-specific labels
   const providerLabel: Partial<Record<LLMProvider, string>> = {
@@ -130,6 +133,7 @@ export default function GeneralTab() {
     gemini: "Google Gemini",
     openrouter: "OpenRouter",
     dll: "DLL",
+    cli_proxy: "CLI Proxy",
   };
 
   const providerDefaults: Partial<Record<LLMProvider, string>> = {
@@ -140,6 +144,7 @@ export default function GeneralTab() {
     llama_cpp: "http://localhost:8080/v1",
     openrouter: "https://openrouter.ai/api/v1",
     dll: "",
+    cli_proxy: "http://127.0.0.1:8317/v1",
   };
   const providerModels: Partial<Record<LLMProvider, string>> = {
     openai: "gpt-4o",
@@ -148,13 +153,14 @@ export default function GeneralTab() {
     llama_cpp: "llama-3-8b-instruct",
     openrouter: "openai/gpt-4",
     dll: "custom-model",
+    cli_proxy: "gpt-5.1-codex",
   };
 
   const localConfig = useMemo(
     () => buildConfig({ maxTokens: 1024, temperature: 0.7 }),
     [buildConfig],
   );
-  const modelsQuery = useModelsQuery(localConfig, isLocalProvider);
+  const modelsQuery = useModelsQuery(localConfig, shouldFetchModels);
   const openRouterConfig = useMemo(
     () => buildConfig({ maxTokens: 1024, temperature: 0.7 }),
     [buildConfig],
@@ -226,13 +232,15 @@ export default function GeneralTab() {
   );
 
   useEffect(() => {
-    if (!isLocalProvider) return;
+    if (!shouldFetchModels) return;
     if (!modelsQuery.data) return;
-    setLocalModels(modelsQuery.data);
-    if (modelsQuery.data.length > 0 && !modelsQuery.data.includes(model)) {
-      setModel(modelsQuery.data[0]);
+    // Deduplicate model IDs (cli_proxy may return duplicates)
+    const uniqueModels = [...new Set(modelsQuery.data)];
+    setLocalModels(uniqueModels);
+    if (uniqueModels.length > 0 && !uniqueModels.includes(model)) {
+      setModel(uniqueModels[0]);
     }
-  }, [isLocalProvider, modelsQuery.data, setLocalModels, setModel, model]);
+  }, [shouldFetchModels, modelsQuery.data, setLocalModels, setModel, model]);
 
   useEffect(() => {
     console.log("[LLM] Settings changed", { provider, model, baseUrl });
@@ -272,6 +280,7 @@ export default function GeneralTab() {
                 <option value="openai">OpenAI</option>
                 <option value="gemini">Gemini</option>
                 <option value="openrouter">OpenRouter</option>
+                <option value="cli_proxy">CLI Proxy</option>
                 <option value="dll">DLL</option>
               </select>
               <ChevronDown className="w-3 h-3 absolute right-3 top-2.5 text-gray-500 pointer-events-none" />
@@ -306,7 +315,7 @@ export default function GeneralTab() {
                   value={model}
                   onChange={(e: any) => setModel(e.target.value)}
                   className="w-full bg-background border border-app-border rounded p-2 px-3 text-xs appearance-none cursor-pointer hover:border-gray-500 transition outline-none">
-                  {isLocalProvider ? (
+                  {shouldFetchModels ? (
                     localModels.length > 0 ? (
                       localModels.map((m) => (
                         <option key={m} value={m}>
@@ -424,6 +433,12 @@ export default function GeneralTab() {
               <span>
                 Local LLM provider active (LM Studio, Ollama, or Llama.cpp).
               </span>
+            </div>
+          )}
+          {isCliProxyProvider && (
+            <div className="bg-app-success-dim border border-app-success/50 text-app-success rounded px-3 py-2 text-[10px] flex items-center gap-2">
+              <CheckCircle className="w-3 h-3" />
+              <span>CLI Proxy provider active. Models fetched from proxy server.</span>
             </div>
           )}
           {provider !== "local" && (

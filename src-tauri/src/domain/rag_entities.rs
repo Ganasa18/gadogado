@@ -211,6 +211,7 @@ pub struct DbConnection {
     pub password_ref: Option<String>, // Reference to secure storage
     pub ssl_mode: String,
     pub is_enabled: bool,
+    pub config_json: Option<String>, // JSON configuration for selected tables/columns
     pub created_at: DateTime<Utc>,
 }
 
@@ -235,6 +236,24 @@ pub struct DbAllowlistProfile {
     pub description: Option<String>,
     pub rules_json: String,
     pub created_at: DateTime<Utc>,
+}
+
+/// Information about a database table
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TableInfo {
+    pub table_name: String,
+    pub table_schema: Option<String>, // For PostgreSQL: schema name
+    pub row_count: Option<i64>,       // Optional: approximate row count
+}
+
+/// Information about a table column
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ColumnInfo {
+    pub column_name: String,
+    pub data_type: String,
+    pub is_nullable: bool,
+    pub is_primary_key: bool,
+    pub position: i32,
 }
 
 /// Configuration for DB collections

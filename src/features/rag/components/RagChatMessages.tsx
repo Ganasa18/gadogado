@@ -4,6 +4,7 @@ import AnimatedContainer from "../../../shared/components/AnimatedContainer";
 import { cn } from "../../../utils/cn";
 import type { ChatMessage } from "../types";
 import { isLowConfidenceSources } from "../ragChatUtils";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 export function RagChatMessages(props: {
   messages: ChatMessage[];
@@ -97,7 +98,46 @@ export function RagChatMessages(props: {
                         ? "bg-red-500/10 border border-red-500/20 text-red-500 text-sm"
                         : "bg-app-card border border-app-border/40 text-app-text rounded-tl-sm",
                   )}>
-                  <p className="text-sm leading-7 whitespace-pre-wrap">{message.content}</p>
+                  {message.type === "assistant" ? (
+                    <div className="select-text cursor-text">
+                      <MarkdownRenderer content={message.content} />
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-7 whitespace-pre-wrap select-text cursor-text">
+                      {message.content}
+                    </p>
+                  )}
+
+                  {/* DB Query Telemetry Display */}
+                  {message.type === "assistant" && message.telemetry && (
+                    <div className="mt-3 pt-2 border-t border-app-border/20 flex flex-wrap items-center gap-3 text-[10px]">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-app-bg/30 border border-app-border/10">
+                        <span className="text-app-text-muted">Rows:</span>
+                        <span className="font-medium text-app-text">{message.telemetry.row_count}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-app-bg/30 border border-app-border/10">
+                        <span className="text-app-text-muted">Latency:</span>
+                        <span className="font-medium text-app-text">{message.telemetry.latency_ms}ms</span>
+                      </div>
+                      <div
+                        className={cn(
+                          "flex items-center gap-1.5 px-2 py-1 rounded border",
+                          message.telemetry.llm_route === "local"
+                            ? "bg-green-500/10 border-green-500/20 text-green-400"
+                            : message.telemetry.llm_route === "external"
+                              ? "bg-blue-500/10 border-blue-500/20 text-blue-400"
+                              : "bg-red-500/10 border-red-500/20 text-red-400",
+                        )}>
+                        <span className="font-bold uppercase tracking-wider">
+                          {message.telemetry.llm_route === "local"
+                            ? "🔒 Local LLM"
+                            : message.telemetry.llm_route === "external"
+                              ? "☁️ External"
+                              : "🚫 Blocked"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   {message.type === "assistant" && message.sources && message.sources.length > 0 && (
                     <div className="mt-4 pt-3 border-t border-white/10 opacity-90">

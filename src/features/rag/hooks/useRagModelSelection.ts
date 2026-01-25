@@ -11,21 +11,27 @@ export function useRagModelSelection() {
   const isLocalProvider =
     provider === "local" || provider === "ollama" || provider === "llama_cpp";
 
+  const isCliProxyProvider = provider === "cli_proxy";
+  const shouldFetchModels = isLocalProvider || isCliProxyProvider;
+
   const localConfig = buildConfig({ maxTokens: 1024, temperature: 0.7 });
-  const modelsQuery = useModelsQuery(localConfig, isLocalProvider);
+  const modelsQuery = useModelsQuery(localConfig, shouldFetchModels);
 
   useEffect(() => {
-    if (!isLocalProvider) return;
+    if (!shouldFetchModels) return;
     if (!modelsQuery.data) return;
 
-    setLocalModels(modelsQuery.data);
-    if (modelsQuery.data.length > 0 && !modelsQuery.data.includes(model)) {
-      setModel(modelsQuery.data[0]);
+    // Deduplicate model IDs (cli_proxy may return duplicates)
+    const uniqueModels = [...new Set(modelsQuery.data)];
+    setLocalModels(uniqueModels);
+    if (uniqueModels.length > 0 && !uniqueModels.includes(model)) {
+      setModel(uniqueModels[0]);
     }
-  }, [isLocalProvider, modelsQuery.data, setLocalModels, setModel, model]);
+  }, [shouldFetchModels, modelsQuery.data, setLocalModels, setModel, model]);
 
   useEffect(() => {
-    if (isLocalProvider) {
+    // For providers that fetch models from server (local, ollama, llama_cpp, cli_proxy)
+    if (shouldFetchModels) {
       if (localModels.length > 0 && !localModels.includes(model)) {
         setModel(localModels[0]);
       }
@@ -54,7 +60,7 @@ export function useRagModelSelection() {
         setModel(models[0]);
       }
     }
-  }, [isLocalProvider, localModels, model, provider, setModel, modelsQuery.data]);
+  }, [shouldFetchModels, localModels, model, provider, setModel, modelsQuery.data]);
 
   return {
     provider,
@@ -64,6 +70,8 @@ export function useRagModelSelection() {
     setLocalModels,
     buildConfig,
     isLocalProvider,
+    isCliProxyProvider,
+    shouldFetchModels,
     modelsQuery,
   };
 }
