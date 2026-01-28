@@ -36,6 +36,7 @@ export interface MockBodyMatch {
   bodyType?: BodyType;
   formData?: FormDataItem[];
   formUrlencode?: MockKeyValue[];
+  validationStrategy?: 'exact' | 'key_only';
 }
 
 export interface MockRouteMatchers {
@@ -157,6 +158,7 @@ export const normalizeConfig = (config: MockServerConfig): MockServerConfig => (
         bodyType: route.matchers.body.bodyType ?? "raw_json",
         formData: route.matchers.body.formData ?? [],
         formUrlencode: route.matchers.body.formUrlencode ?? [],
+        validationStrategy: route.matchers.body.validationStrategy ?? "exact",
       } : null,
     },
     response: {

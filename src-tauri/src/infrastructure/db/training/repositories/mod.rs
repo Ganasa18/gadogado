@@ -30,4 +30,4 @@ pub use soft_labels::{
 pub use soft_labels::SoftLabelEntity;
 pub use tags::{Tag, TagRepository};
 pub use training_logs::{TrainingLog, TrainingLogInput, TrainingLogRepository};
-pub use training_runs::{TrainingMethod, TrainingRun, TrainingRunInput, TrainingRunRepository, TrainingStatus};
+pub use training_runs::{TrainingRun, TrainingRunInput, TrainingRunRepository, TrainingStatus};

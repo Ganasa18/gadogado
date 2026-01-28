@@ -160,7 +160,6 @@ pub async fn distill_start_python_training(
     let _ = std::fs::OpenOptions::new().create(true).append(true).open(&stderr_log_path);
 
     // Record baseline artifacts
-    let artifacts_repo = RunArtifactsRepository::new(&db);
     record_initial_artifacts(&db, &run_id, &config_path, &stdout_log_path, &stderr_log_path).await;
 
     // Spawn Python process
@@ -344,7 +343,7 @@ async fn record_initial_artifacts(
 
 fn spawn_train_stdout_handler(
     app: AppHandle,
-    logs: Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
+    _logs: Arc<std::sync::Mutex<Vec<crate::interfaces::http::LogEntry>>>,
     db_path: PathBuf,
     run_id: String,
     run_dir: PathBuf,

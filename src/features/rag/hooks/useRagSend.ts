@@ -1,6 +1,15 @@
 import { useCallback, useState } from "react";
-import { dbQueryRag, ragQuery, recordRetrievalGap } from "../api";
+import {
+  dbQueryRag,
+  dbQueryRagWithTemplate,
+  ragQuery,
+  ragChatWithContext,
+  getConversationMessages,
+  recordRetrievalGap,
+  submitTemplateFeedback,
+} from "../api";
 import type { ChatMessage, RagQueryResult } from "../types";
+import type { ConversationMessage } from "../api";
 import { hashQueryToHex, planRagPrompt } from "../ragChatUtils";
 
 import type { LlmConfig, LlmResponse } from "../../../shared/api/apiClient";
@@ -29,12 +38,32 @@ const DEFAULT_TEMPERATURE = 0.2;
 async function processDbQuery(
   collectionId: number,
   query: string,
-  topK: number,
+  dbFinalK: number,
+  conversationId?: number | null,
 ): Promise<{ message: ChatMessage; sourceIds: number[] }> {
+  // Load conversation history if available (for NL response context)
+  let conversationHistory: ConversationMessage[] | undefined;
+  if (conversationId) {
+    try {
+      conversationHistory = await getConversationMessages(conversationId, 50);
+    } catch (err) {
+      console.error("Failed to load conversation messages:", err);
+    }
+  }
+
+  // Don't pass limit - backend uses conn_config.default_limit from config_json
+  // Pass final_k to control how many results after reranking
+  // Mark as new query (don't use template feedback)
   const dbResponse = await dbQueryRag({
     collection_id: collectionId,
     query,
-    limit: Math.max(1, topK),
+    final_k: dbFinalK,
+    is_new_query: true,
+    // Pass conversation history for NL response generation (SQL generation remains standalone)
+    conversation_history: conversationHistory?.map((m) => ({
+      role: m.role,
+      content: m.content,
+    })),
   });
 
   const sources: RagQueryResult[] = dbResponse.citations.map((citation) => ({
@@ -62,7 +91,64 @@ async function processDbQuery(
 }
 
 /**
- * Processes a file-based RAG query and returns the assistant message with sources
+ * Processes a DB collection query with a specific template
+ * Used when user selects a different template from the matched templates
+ */
+async function processDbQueryWithTemplate(
+  collectionId: number,
+  query: string,
+  templateId: number,
+  dbFinalK: number,
+  conversationId?: number | null,
+): Promise<{ message: ChatMessage; sourceIds: number[] }> {
+  // Load conversation history if available (for NL response context)
+  let conversationHistory: ConversationMessage[] | undefined;
+  if (conversationId) {
+    try {
+      conversationHistory = await getConversationMessages(conversationId, 50);
+    } catch (err) {
+      console.error("Failed to load conversation messages:", err);
+    }
+  }
+
+  const dbResponse = await dbQueryRagWithTemplate({
+    collection_id: collectionId,
+    query,
+    template_id: templateId,
+    final_k: dbFinalK,
+    // Pass conversation history for NL response generation (SQL generation remains standalone)
+    conversation_history: conversationHistory?.map((m) => ({
+      role: m.role,
+      content: m.content,
+    })),
+  });
+
+  const sources: RagQueryResult[] = dbResponse.citations.map((citation) => ({
+    content: JSON.stringify(citation.columns),
+    source_type: "db_row",
+    source_id: parseInt(citation.row_id, 10) || 0,
+    score: null,
+    page_number: null,
+    page_offset: null,
+    doc_name: citation.table_name,
+  }));
+
+  const sourceIds = sources.map((s) => s.source_id);
+  const message: ChatMessage = {
+    id: (Date.now() + 1).toString(),
+    type: "assistant",
+    content: dbResponse.answer,
+    timestamp: new Date(),
+    sources: sources.length > 0 ? sources : undefined,
+    query,
+    telemetry: dbResponse.telemetry,
+  };
+
+  return { message, sourceIds };
+}
+
+/**
+ * Processes a file-based RAG query with conversation history and returns the assistant message with sources
  */
 async function processFileRagQuery(
   collectionId: number,
@@ -75,16 +161,49 @@ async function processFileRagQuery(
   isLocalProvider: boolean,
   localModels: string[],
   model: string,
+  provider: string,
   enhanceAsync: EnhanceAsync,
   buildConfig: (overrides?: LlmConfigOverrides) => LlmConfig,
+  conversationId?: number | null,
 ): Promise<{ message: ChatMessage; sourceIds?: number[] }> {
-  const response = await ragQuery({
-    collection_id: collectionId,
-    query,
-    top_k: Math.max(1, topK),
-    candidate_k: Math.max(1, candidateK),
-    rerank_k: Math.max(1, rerankK),
-  });
+  // Load conversation history if available
+  let conversationMessages: ConversationMessage[] | undefined;
+  if (conversationId) {
+    try {
+      conversationMessages = await getConversationMessages(conversationId, 50);
+    } catch (err) {
+      console.error("Failed to load conversation messages:", err);
+    }
+  }
+
+  // Use chat with context API if we have conversation history
+  const response = conversationMessages && conversationMessages.length > 0
+    ? await ragChatWithContext({
+        collection_id: collectionId,
+        query,
+        conversation_id: conversationId || undefined,
+        messages: conversationMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        top_k: Math.max(1, topK),
+        language: answerLanguage === "id" ? "indonesia" : "english",
+        provider,
+        model,
+      })
+    : await ragQuery({
+        collection_id: collectionId,
+        query,
+        top_k: Math.max(1, topK),
+        candidate_k: Math.max(1, candidateK),
+        rerank_k: Math.max(1, rerankK),
+        language: answerLanguage === "id" ? "indonesia" : "english",
+      });
+
+  // Log context management info if available
+  if ("context_managed" in response && response.context_managed) {
+    console.log("[RAG Context Management]", response.context_managed);
+  }
 
   const plan = planRagPrompt({
     query,
@@ -131,17 +250,18 @@ async function processFileRagQuery(
     .replace(/\[Source:[^\]]+\]/g, "")
     .trim();
 
-  const hasSources = response.results.length > 0;
+  const results = response.results;
+  const hasSources = results.length > 0;
   const message: ChatMessage = {
     id: (Date.now() + 1).toString(),
     type: "assistant",
     content: cleanedAnswer,
     timestamp: new Date(),
-    sources: hasSources ? response.results : undefined,
+    sources: hasSources ? results : undefined,
     query,
   };
 
-  const sourceIds = hasSources ? response.results.map((r) => r.source_id) : undefined;
+  const sourceIds = hasSources ? results.map((r: RagQueryResult) => r.source_id) : undefined;
   return { message, sourceIds };
 }
 
@@ -181,9 +301,11 @@ export function useRagSend(input: {
   topK: number;
   candidateK: number;
   rerankK: number;
+  dbFinalK: number;
   isLocalProvider: boolean;
   localModels: string[];
   model: string;
+  provider: string;
   enhanceAsync: EnhanceAsync;
   buildConfig: (overrides?: LlmConfigOverrides) => LlmConfig;
   ensureConversation: (collectionId: number, query: string) => Promise<number | null>;
@@ -203,9 +325,11 @@ export function useRagSend(input: {
     topK,
     candidateK,
     rerankK,
+    dbFinalK,
     isLocalProvider,
     localModels,
     model,
+    provider,
     enhanceAsync,
     buildConfig,
     ensureConversation,
@@ -235,7 +359,7 @@ export function useRagSend(input: {
 
         // Branch based on collection type
         if (isDbCollection) {
-          const result = await processDbQuery(selectedCollectionId, query, topK);
+          const result = await processDbQuery(selectedCollectionId, query, dbFinalK, conversationId);
           assistantMessage = result.message;
           sourceIds = result.sourceIds;
         } else {
@@ -250,8 +374,10 @@ export function useRagSend(input: {
             isLocalProvider,
             localModels,
             model,
+            provider,
             enhanceAsync,
             buildConfig,
+            conversationId,
           );
           assistantMessage = result.message;
           sourceIds = result.sourceIds;
@@ -277,9 +403,11 @@ export function useRagSend(input: {
       topK,
       candidateK,
       rerankK,
+      dbFinalK,
       isLocalProvider,
       localModels,
       model,
+      provider,
       enhanceAsync,
       buildConfig,
       ensureConversation,
@@ -288,5 +416,64 @@ export function useRagSend(input: {
     ],
   );
 
-  return { isLoading, sendMessage };
+  /**
+   * Regenerate a query using a specific template (for DB collections)
+   * This is called when user selects a different template from the matched templates
+   */
+  const regenerateWithTemplate = useCallback(
+    async (query: string, templateId: number, autoSelectedTemplateId?: number) => {
+      if (!query || !selectedCollectionId || !isDbCollection) return;
+
+      setIsLoading(true);
+
+      // Submit template feedback in background (non-blocking)
+      // This helps the system learn user preferences
+      submitTemplateFeedback({
+        collection_id: selectedCollectionId,
+        query,
+        auto_selected_template_id: autoSelectedTemplateId,
+        user_selected_template_id: templateId,
+      }).catch((err) => console.error("Failed to submit template feedback:", err));
+
+      const conversationId = await ensureConversation(selectedCollectionId, query);
+
+      // Create and append user message indicating template regeneration
+      const userMessage = createUserMessage(`[Regenerate with template #${templateId}] ${query}`);
+      appendMessage(userMessage);
+      await persistMessage(conversationId, "user", userMessage.content);
+
+      try {
+        const result = await processDbQueryWithTemplate(
+          selectedCollectionId,
+          query,
+          templateId,
+          dbFinalK,
+          conversationId,
+        );
+        const assistantMessage = result.message;
+        const sourceIds = result.sourceIds;
+
+        // Append assistant message and persist
+        appendMessage(assistantMessage);
+        await persistMessage(conversationId, "assistant", assistantMessage.content, sourceIds);
+      } catch (err) {
+        console.error("Failed to regenerate with template:", err);
+        const errorMessage = createErrorMessage(err);
+        appendMessage(errorMessage);
+        await persistMessage(conversationId, "system", errorMessage.content);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      selectedCollectionId,
+      isDbCollection,
+      dbFinalK,
+      ensureConversation,
+      appendMessage,
+      persistMessage,
+    ],
+  );
+
+  return { isLoading, sendMessage, regenerateWithTemplate };
 }

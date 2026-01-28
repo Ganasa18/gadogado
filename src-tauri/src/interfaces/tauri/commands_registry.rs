@@ -137,6 +137,12 @@ macro_rules! tauri_invoke_handler {
             crate::interfaces::tauri::rag_commands::csv::csv_preprocess_file,
             crate::interfaces::tauri::rag_commands::csv::csv_preview_rows,
             crate::interfaces::tauri::rag_commands::csv::csv_analyze,
+            // RAG Context Settings
+            crate::interfaces::tauri::rag_commands::rag_settings::get_rag_global_settings,
+            crate::interfaces::tauri::rag_commands::rag_settings::update_rag_global_settings,
+            crate::interfaces::tauri::rag_commands::rag_settings::get_model_context_limit,
+            crate::interfaces::tauri::rag_commands::rag_settings::get_all_model_limits,
+            crate::interfaces::tauri::rag_commands::rag_settings::upsert_model_limit,
             // Model distillation
             crate::interfaces::tauri::distillation::distill_save_correction,
             crate::interfaces::tauri::distillation::distill_get_correction,
@@ -206,7 +212,16 @@ macro_rules! tauri_invoke_handler {
             crate::interfaces::tauri::rag_commands::db_connections::db_delete_allowlist_profile,
             crate::interfaces::tauri::rag_commands::db_connections::db_save_connection_config,
             crate::interfaces::tauri::rag_commands::db_connections::db_get_connection_config,
+            crate::interfaces::tauri::rag_commands::db_connections::db_sync_profile_tables,
             crate::interfaces::tauri::rag_commands::db_query_rag::db_query_rag,
+            crate::interfaces::tauri::rag_commands::db_query_rag::db_query_rag_with_template,
+            crate::interfaces::tauri::rag_commands::db_query_rag::submit_template_feedback,
+            // Query Templates (Feature 31)
+            crate::interfaces::tauri::rag_commands::query_templates::db_list_query_templates,
+            crate::interfaces::tauri::rag_commands::query_templates::db_create_query_template,
+            crate::interfaces::tauri::rag_commands::query_templates::db_update_query_template,
+            crate::interfaces::tauri::rag_commands::query_templates::db_delete_query_template,
+            crate::interfaces::tauri::rag_commands::query_templates::db_toggle_query_template,
             crate::interfaces::tauri::rag_commands::audit_rate_limit::db_get_audit_recent,
             crate::interfaces::tauri::rag_commands::audit_rate_limit::db_get_rate_limit_status
         ]

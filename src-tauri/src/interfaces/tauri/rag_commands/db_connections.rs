@@ -701,36 +701,43 @@ pub async fn db_delete_allowlist_profile(
 
 
 /// Save connection configuration (tables and columns)
+/// Accepts either config_json (new format with default_limit) or individual parameters (legacy)
 #[tauri::command]
 pub async fn db_save_connection_config(
     state: State<'_, Arc<super::AppState>>,
     conn_id: i64,
-    profile_id: i64,
-    selected_tables: Vec<String>,
-    selected_columns: std::collections::HashMap<String, Vec<String>>,
+    config_json: Option<String>,
+    profile_id: Option<i64>,
+    selected_tables: Option<Vec<String>>,
+    selected_columns: Option<std::collections::HashMap<String, Vec<String>>>,
 ) -> Result<DbConnection> {
+    // Use config_json if provided, otherwise build from individual parameters
+    let final_config = if let Some(json_str) = config_json {
+        json_str
+    } else {
+        // Legacy mode: build config from individual parameters
+        let pid = profile_id.ok_or_else(|| AppError::ValidationError("profile_id is required when config_json is not provided".to_string()))?;
+        let tables = selected_tables.unwrap_or_default();
+        let columns = selected_columns.unwrap_or_default();
+
+        serde_json::json!({
+            "profile_id": pid,
+            "selected_tables": tables,
+            "selected_columns": columns,
+            "updated_at": chrono::Utc::now().to_rfc3339()
+        }).to_string()
+    };
+
     add_log(
         &state.logs,
         "INFO",
         LOG_CONTEXT_DB,
-        &format!("Saving config for connection: {} ({} tables, {} column configs)",
-            conn_id,
-            selected_tables.len(),
-            selected_columns.len()
-        ),
+        &format!("Saving config for connection: {}", conn_id),
     );
-
-    // Build config JSON
-    let config = serde_json::json!({
-        "profile_id": profile_id,
-        "selected_tables": selected_tables,
-        "selected_columns": selected_columns,
-        "updated_at": chrono::Utc::now().to_rfc3339()
-    });
 
     state
         .rag_repository
-        .update_db_connection_config(conn_id, &config.to_string())
+        .update_db_connection_config(conn_id, &final_config)
         .await
         .map_err(|e| {
             log_and_return_error(
@@ -764,8 +771,149 @@ pub async fn db_get_connection_config(
             Ok(serde_json::json!({
                 "profile_id": null,
                 "selected_tables": Vec::<String>::new(),
-                "selected_columns": std::collections::HashMap::<String, Vec<String>>::new()
+                "selected_columns": std::collections::HashMap::<String, Vec<String>>::new(),
+                "default_limit": null,
+                "updated_at": null
             }))
         }
     }
+}
+
+/// Sync selected tables to an allowlist profile's rules
+///
+/// This command updates the profile's `rules_json.allowed_tables` field
+/// using the column lists from the connection's config_json (selected_columns).
+/// This ensures SQL-RAG has explicit column lists (security requirement: no SELECT *).
+#[tauri::command]
+pub async fn db_sync_profile_tables(
+    state: State<'_, Arc<super::AppState>>,
+    profile_id: i64,
+    conn_id: i64,
+    tables: Vec<String>,
+) -> Result<DbAllowlistProfile> {
+    add_log(
+        &state.logs,
+        "INFO",
+        LOG_CONTEXT_DB,
+        &format!("Syncing {} tables to profile {} from connection {}", tables.len(), profile_id, conn_id),
+    );
+
+    // Get the current profile
+    let profile = state
+        .rag_repository
+        .get_allowlist_profile(profile_id)
+        .await
+        .map_err(|e| {
+            log_and_return_error(
+                &state.logs,
+                LOG_CONTEXT_DB,
+                &format!("Failed to get profile {}: {}", profile_id, e),
+                e,
+            )
+        })?;
+
+    // Get the database connection to read config_json
+    let conn_config = state
+        .rag_repository
+        .get_db_connection(conn_id)
+        .await
+        .map_err(|e| {
+            log_and_return_error(
+                &state.logs,
+                LOG_CONTEXT_DB,
+                &format!("Failed to get connection {}: {}", conn_id, e),
+                e,
+            )
+        })?;
+
+    // Parse existing rules_json
+    let mut rules: serde_json::Value = serde_json::from_str(&profile.rules_json).map_err(|e| {
+        log_and_return_error(
+            &state.logs,
+            LOG_CONTEXT_DB,
+            &format!("Failed to parse rules_json for profile {}: {}", profile_id, e),
+            AppError::ValidationError(format!("Invalid rules_json: {}", e)),
+        )
+    })?;
+
+    // Parse connection config to get selected_columns
+    // SECURITY: Use the column lists from connection config that were
+    // explicitly selected by the user in TableSetupPage
+    let conn_config_json: serde_json::Value = match &conn_config.config_json {
+        Some(json) => serde_json::from_str(json).map_err(|e| {
+            log_and_return_error(
+                &state.logs,
+                LOG_CONTEXT_DB,
+                &format!("Failed to parse connection config_json: {}", e),
+                AppError::ValidationError(format!("Invalid connection config_json: {}", e)),
+            )
+        })?,
+        None => {
+            add_log(
+                &state.logs,
+                "WARN",
+                LOG_CONTEXT_DB,
+                "Connection has no config_json, using empty columns",
+            );
+            serde_json::json!({"selected_columns": {}})
+        }
+    };
+
+    // Extract selected_columns from config
+    let selected_columns_map = conn_config_json
+        .get("selected_columns")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or(serde_json::Map::new());
+
+    // Build allowed_tables using selected_columns from connection config
+    let mut allowed_tables = serde_json::Map::new();
+    for table in &tables {
+        // Get the column list from connection config
+        let columns = selected_columns_map.get(table)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        add_log(
+            &state.logs,
+            "DEBUG",
+            LOG_CONTEXT_DB,
+            &format!("Table '{}': syncing {} columns from connection config: {:?}", table, columns.len(), columns),
+        );
+
+        allowed_tables.insert(table.clone(), serde_json::json!(columns));
+    }
+
+    // Update the rules object
+    if let Some(obj) = rules.as_object_mut() {
+        obj.insert("allowed_tables".to_string(), serde_json::Value::Object(allowed_tables));
+    }
+
+    // Update the profile with new rules
+    let updated_profile = state
+        .rag_repository
+        .update_allowlist_profile(profile_id, None, None, Some(&rules.to_string()))
+        .await
+        .map_err(|e| {
+            log_and_return_error(
+                &state.logs,
+                LOG_CONTEXT_DB,
+                &format!("Failed to update profile {} rules: {}", profile_id, e),
+                e,
+            )
+        })?;
+
+    add_log(
+        &state.logs,
+        "INFO",
+        LOG_CONTEXT_DB,
+        &format!("Successfully synced {} tables to profile {}", tables.len(), profile_id),
+    );
+
+    Ok(updated_profile)
 }

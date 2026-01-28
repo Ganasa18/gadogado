@@ -253,7 +253,7 @@ export default function GeneralTab() {
         {/* Card 1: Translation Model */}
         <div className="bg-app-card rounded-lg border border-app-border p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-3 text-app-text font-medium">
-            <Box className="w-4 h-4 text-blue-400" />
+            <Box className="w-4 h-4 text-primary" />
             <h3>Translation Model</h3>
           </div>
           <div className="grid grid-cols-2 gap-3 mb-3">
@@ -708,7 +708,7 @@ export default function GeneralTab() {
                 <span className="text-app-text text-xs">
                   Translate & Replace
                 </span>
-                <span className="bg-[#1e293b] text-blue-300 border border-blue-800/50 px-2 py-1 rounded text-[10px] font-mono shadow-sm">
+                <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded text-[10px] font-mono shadow-sm">
                   {shortcuts.translate}
                 </span>
               </div>
@@ -739,7 +739,7 @@ export default function GeneralTab() {
         {/* Card 4: Appearance */}
         <div className="bg-app-card rounded-lg border border-app-border p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-4 text-app-text font-medium">
-            <Sliders className="w-4 h-4 text-blue-400" />
+            <Sliders className="w-4 h-4 text-primary" />
             <h3>Appearance</h3>
           </div>
           <div className="space-y-4">

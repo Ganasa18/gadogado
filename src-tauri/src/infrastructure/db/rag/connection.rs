@@ -106,6 +106,9 @@ async fn apply_schema(pool: &SqlitePool) -> Result<(), String> {
     ensure_column(pool, "document_chunks", "content_hash", "TEXT").await?;
     ensure_column(pool, "document_chunks", "page_offset", "INTEGER").await?;
 
+    // Rate limiter feature migration - add blocked_count column
+    ensure_column(pool, "db_query_sessions", "blocked_count", "INTEGER NOT NULL DEFAULT 0").await?;
+
     // Initialize default allowlist profile for DB connections
     init_default_allowlist_profile(pool).await?;
 

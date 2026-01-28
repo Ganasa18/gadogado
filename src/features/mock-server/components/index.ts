@@ -14,6 +14,8 @@ export { IncomingRequestSection } from "./IncomingRequestSection";
 export { MockResponseSection } from "./MockResponseSection";
 export { CurlCommandSection } from "./CurlCommandSection";
 
+export { MockServerLayout } from "./MockServerLayout";
+
 export type { MethodBadgeProps } from "./MethodBadge";
 export type { KeyValueEditorProps } from "./KeyValueEditor";
 export type { FormDataEditorProps } from "./FormDataEditor";

@@ -10,6 +10,7 @@ export function useRagPersistedSettings() {
   const [topK, setTopK] = useState(5);
   const [candidateK, setCandidateK] = useState(100);
   const [rerankK, setRerankK] = useState(75);
+  const [dbFinalK, setDbFinalK] = useState(10);
 
   useEffect(() => {
     const savedCollection = localStorage.getItem("rag-selected-collection");
@@ -43,6 +44,12 @@ export function useRagPersistedSettings() {
       const v = parseInt(savedRerankK, 10);
       if (!Number.isNaN(v) && v > 0) setRerankK(v);
     }
+
+    const savedDbFinalK = localStorage.getItem("rag-db-final-k");
+    if (savedDbFinalK) {
+      const v = parseInt(savedDbFinalK, 10);
+      if (!Number.isNaN(v) && v > 0) setDbFinalK(v);
+    }
   }, []);
 
   useEffect(() => {
@@ -74,6 +81,10 @@ export function useRagPersistedSettings() {
     localStorage.setItem("rag-rerank-k", String(rerankK));
   }, [rerankK]);
 
+  useEffect(() => {
+    localStorage.setItem("rag-db-final-k", String(dbFinalK));
+  }, [dbFinalK]);
+
   return {
     selectedCollectionId,
     setSelectedCollectionId,
@@ -87,5 +98,7 @@ export function useRagPersistedSettings() {
     setCandidateK,
     rerankK,
     setRerankK,
+    dbFinalK,
+    setDbFinalK,
   };
 }

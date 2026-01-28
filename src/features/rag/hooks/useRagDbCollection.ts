@@ -15,7 +15,7 @@ export function useRagDbCollection(input: {
     [collections, selectedCollectionId],
   );
 
-  const isDbCollection = currentCollection?.kind === "db";
+  const isDbCollection = currentCollection?.kind === "Db";
 
   useEffect(() => {
     if (!selectedCollectionId || !isDbCollection) {

@@ -12,7 +12,7 @@
 use crate::domain::error::{AppError, Result};
 use crate::domain::rag_entities::{QueryFilter, QueryPlan};
 use serde::{Deserialize, Serialize};
-use tracing::{debug};
+use tracing::debug;
 
 /// Target database type for SQL generation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -63,9 +63,10 @@ impl SqlCompiler {
 
         // Build SELECT clause (explicit columns, no SELECT *)
         let select_clause = if plan.select.is_empty() || plan.select.contains(&"*".to_string()) {
-            return Err(AppError::ValidationError(
-                "Explicit column list required (no SELECT *)".to_string(),
-            ));
+            return Err(AppError::ValidationError(format!(
+                "Explicit column list required for table '{}' (found empty or SELECT *)",
+                plan.table
+            )));
         } else {
             plan.select
                 .iter()
@@ -88,7 +89,11 @@ impl SqlCompiler {
             } else {
                 "ASC"
             };
-            format!("ORDER BY {} {}", self.quote_identifier(&o.column), direction)
+            format!(
+                "ORDER BY {} {}",
+                self.quote_identifier(&o.column),
+                direction
+            )
         });
 
         // Build LIMIT clause (always required)
@@ -189,8 +194,7 @@ impl SqlCompiler {
         }
 
         // Rest must be alphanumeric or underscore
-        s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 
     /// Quote an identifier (table or column name) for the target database
@@ -215,8 +219,7 @@ impl SqlCompiler {
         let mut params = Vec::new();
 
         for filter in filters {
-            let (condition, filter_params) =
-                self.build_filter_condition(filter, param_index);
+            let (condition, filter_params) = self.build_filter_condition(filter, param_index);
             conditions.push(condition);
             params.extend(filter_params);
         }
@@ -257,7 +260,11 @@ impl SqlCompiler {
                         let placeholder = self.get_placeholder(*param_index);
                         *param_index += 1;
                         params.push(serde_json::Value::Array(
-                            filter.values.iter().map(|v| self.value_to_json(v)).collect(),
+                            filter
+                                .values
+                                .iter()
+                                .map(|v| self.value_to_json(v))
+                                .collect(),
                         ));
                         format!("{} = ANY({})", column, placeholder)
                     }
@@ -390,24 +397,15 @@ impl SqlCompiler {
             ));
         }
 
-        // Check for forbidden keywords
+        // Check for forbidden keywords using word boundary matching
+        // This prevents false positives like "CREATED_AT" matching "CREATE"
         let forbidden = [
-            "INSERT",
-            "UPDATE",
-            "DELETE",
-            "DROP",
-            "ALTER",
-            "TRUNCATE",
-            "CREATE",
-            "GRANT",
-            "REVOKE",
-            "PRAGMA",
-            "ATTACH",
-            "DETACH",
+            "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE",
+            "PRAGMA", "ATTACH", "DETACH",
         ];
 
         for keyword in &forbidden {
-            if sql_upper.contains(keyword) {
+            if self.contains_whole_word(&sql_upper, keyword) {
                 return Err(AppError::ValidationError(format!(
                     "SQL contains forbidden keyword: {}",
                     keyword
@@ -416,6 +414,35 @@ impl SqlCompiler {
         }
 
         Ok(())
+    }
+
+    /// Check if a string contains a keyword as a whole word (not as substring)
+    fn contains_whole_word(&self, text: &str, keyword: &str) -> bool {
+        let keyword_len = keyword.len();
+        let text_len = text.len();
+
+        if keyword_len > text_len {
+            return false;
+        }
+
+        let text_bytes = text.as_bytes();
+        let keyword_bytes = keyword.as_bytes();
+
+        for i in 0..=(text_len - keyword_len) {
+            // Check if the substring matches
+            if &text_bytes[i..i + keyword_len] == keyword_bytes {
+                // Check if it's a whole word (surrounded by non-alphanumeric chars or boundaries)
+                let before_ok = i == 0 || !text_bytes[i - 1].is_ascii_alphanumeric();
+                let after_ok = i + keyword_len == text_len
+                    || !text_bytes[i + keyword_len].is_ascii_alphanumeric();
+
+                if before_ok && after_ok {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Generate a human-readable description of the query
@@ -587,5 +614,49 @@ mod tests {
         let query = result.unwrap();
         assert!(query.sql.contains("BETWEEN $1 AND $2"));
         assert_eq!(query.params.len(), 2);
+    }
+
+    #[test]
+    fn test_created_at_column_not_blocked() {
+        // Regression test: "created_at" column should not be blocked
+        // because it contains "CREATE" as a substring
+        let compiler = SqlCompiler::postgres();
+        let plan = QueryPlan {
+            mode: "list".to_string(),
+            table: "users".to_string(),
+            select: vec![
+                "id".to_string(),
+                "name".to_string(),
+                "created_at".to_string(),
+                "updated_at".to_string(),
+            ],
+            filters: vec![],
+            limit: 5,
+            order_by: Some(OrderBy {
+                column: "created_at".to_string(),
+                direction: "desc".to_string(),
+            }),
+            joins: None,
+        };
+
+        let result = compiler.compile(&plan);
+        assert!(result.is_ok(), "Query with created_at column should compile successfully");
+        let query = result.unwrap();
+        assert!(query.sql.contains("\"created_at\""));
+    }
+
+    #[test]
+    fn test_whole_word_keyword_detection() {
+        let compiler = SqlCompiler::postgres();
+
+        // Test that whole word detection works correctly
+        assert!(compiler.contains_whole_word("DROP TABLE users", "DROP"));
+        assert!(compiler.contains_whole_word("SELECT * FROM users; DROP TABLE users", "DROP"));
+        assert!(!compiler.contains_whole_word("DROPDOWN", "DROP"));
+        assert!(!compiler.contains_whole_word("CREATED_AT", "CREATE"));
+        assert!(!compiler.contains_whole_word("\"created_at\"", "CREATE"));
+        assert!(compiler.contains_whole_word("CREATE TABLE", "CREATE"));
+        assert!(!compiler.contains_whole_word("UPDATED_BY", "UPDATE"));
+        assert!(compiler.contains_whole_word("UPDATE users SET", "UPDATE"));
     }
 }

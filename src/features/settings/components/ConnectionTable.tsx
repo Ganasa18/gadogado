@@ -9,6 +9,7 @@ interface ConnectionTableProps {
   onDeleteClick: (id: number, name: string) => void;
   onConfigureProfile: (connection: DbConnection) => void;
   onManageTables: (connection: DbConnection) => void;
+  onEditConfig?: (connection: DbConnection) => void;
 }
 
 export function ConnectionTable({
@@ -17,6 +18,7 @@ export function ConnectionTable({
   onDeleteClick,
   onConfigureProfile,
   onManageTables,
+  onEditConfig,
 }: ConnectionTableProps) {
   return (
     <div className="bg-app-panel border border-app-border rounded-xl overflow-hidden shadow-xl">
@@ -65,6 +67,7 @@ export function ConnectionTable({
                     onDeleteClick={onDeleteClick}
                     onConfigureProfile={onConfigureProfile}
                     onManageTables={onManageTables}
+                    onEditConfig={onEditConfig}
                   />
                 </div>
               </td>

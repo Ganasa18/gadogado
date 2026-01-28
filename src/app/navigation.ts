@@ -126,6 +126,12 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: BarChart3,
         section: "Workspace",
       },
+      {
+        path: "/rag/settings",
+        label: "RAG Settings",
+        icon: Settings,
+        section: "Workspace",
+      },
     ],
   },
   {

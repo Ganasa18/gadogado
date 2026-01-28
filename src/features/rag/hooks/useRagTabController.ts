@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-dialog";
 import type { NavigateFunction } from "react-router";
 import type { CollectionKind, DbAllowlistProfile, DbConnection, RagCollection, RagDocument } from "../types";
 import {
@@ -11,21 +9,11 @@ import {
   dbListConnections,
   deleteRagCollection,
   deleteRagDocument,
-  importRagFile,
-  importRagWeb,
   listRagCollections,
   listRagDocuments,
   ragCreateDbCollection,
 } from "../api";
-import {
-  getFileExtension,
-  getStatusMessage,
-  isSupportedFile,
-  SUPPORTED_EXTENSIONS,
-  type ImportProgress,
-} from "../ragTabUtils";
-
-type WebCrawlMode = "html" | "ocr";
+import { useRagImports } from "./ragTab/useRagImports";
 
 export function useRagTabController(navigate: NavigateFunction) {
   const [collections, setCollections] = useState<RagCollection[]>([]);
@@ -38,7 +26,7 @@ export function useRagTabController(navigate: NavigateFunction) {
   const hasDocuments = documents.length > 0;
 
   // Collection kind state
-  const [collectionKind, setCollectionKind] = useState<CollectionKind>("files");
+  const [collectionKind, setCollectionKind] = useState<CollectionKind>("Files");
 
   // DB connection state
   const [dbConnections, setDbConnections] = useState<DbConnection[]>([]);
@@ -47,36 +35,36 @@ export function useRagTabController(navigate: NavigateFunction) {
   const [allowlistProfileId, setAllowlistProfileId] = useState<number>(1);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const [collectionTables, setCollectionTables] = useState<string[]>([]);
+  const [collectionConfig, setCollectionConfig] = useState<any>(null);
   const [availableTables, setAvailableTables] = useState<string[]>([]);
-  const [defaultLimit, setDefaultLimit] = useState(50);
   const [isLoadingDbData, setIsLoadingDbData] = useState(false);
 
-  // Web import state
-  const [webUrl, setWebUrl] = useState("");
-  const [maxPages, setMaxPages] = useState(10);
-  const [maxDepth, setMaxDepth] = useState(2);
-  const [isCrawling, setIsCrawling] = useState(false);
-  const [showWebImport, setShowWebImport] = useState(false);
-  const [webCrawlMode, setWebCrawlMode] = useState<WebCrawlMode>("html");
-
-  // Import progress state with real-time feedback
-  const [importProgress, setImportProgress] = useState<ImportProgress>({
-    status: "idle",
-    message: "",
-  });
+  // Imports (file + web) + progress
 
   const selectedCollection = useMemo(() => {
-    return collections.find((c) => c.id === selectedCollectionId) ?? null;
+    const collection = collections.find((c) => c.id === selectedCollectionId) ?? null;
+    if (collection) {
+      console.log("[FRONTEND] Selected collection:", {
+        id: collection.id,
+        name: collection.name,
+        kind: collection.kind,
+        kindType: typeof collection.kind,
+      });
+    }
+    return collection;
   }, [collections, selectedCollectionId]);
 
-  const isImporting =
-    importProgress.status !== "idle" &&
-    importProgress.status !== "complete" &&
-    importProgress.status !== "error";
+  // (imports hook is initialized after loadDocuments is declared)
 
   const loadCollections = useCallback(async () => {
     try {
       const data = await listRagCollections(50);
+      console.log("[FRONTEND] Loaded collections:", data.map(c => ({
+        id: c.id,
+        name: c.name,
+        kind: c.kind,
+        kindType: typeof c.kind,
+      })));
       setCollections(data);
     } catch (err) {
       console.error("Failed to load collections:", err);
@@ -112,7 +100,7 @@ export function useRagTabController(navigate: NavigateFunction) {
 
   // Load available tables when DB connection is selected
   useEffect(() => {
-    if (!dbConnId || collectionKind !== "db") {
+    if (!dbConnId || collectionKind !== "Db") {
       setAvailableTables([]);
       return;
     }
@@ -133,8 +121,9 @@ export function useRagTabController(navigate: NavigateFunction) {
 
   // Load collection tables for display
   useEffect(() => {
-    if (!selectedCollectionId || !selectedCollection || selectedCollection.kind !== "db") {
+    if (!selectedCollectionId || !selectedCollection || selectedCollection.kind !== "Db") {
       setCollectionTables([]);
+      setCollectionConfig(null);
       return;
     }
 
@@ -142,9 +131,18 @@ export function useRagTabController(navigate: NavigateFunction) {
       try {
         const tables = await dbGetSelectedTables(selectedCollectionId);
         setCollectionTables(tables);
+
+        // Parse full config from collection's config_json
+        try {
+          const config = JSON.parse(selectedCollection.config_json);
+          setCollectionConfig(config);
+        } catch {
+          setCollectionConfig(null);
+        }
       } catch (err) {
         console.error("Failed to load collection tables:", err);
         setCollectionTables([]);
+        setCollectionConfig(null);
       }
     };
 
@@ -170,18 +168,44 @@ export function useRagTabController(navigate: NavigateFunction) {
       return;
     }
 
+    // Don't load documents for DB collections - they don't have documents
+    if (selectedCollection && selectedCollection.kind === "Db") {
+      setDocuments([]);
+      return;
+    }
+
     setDocuments([]);
     void loadDocuments(selectedCollectionId);
-  }, [loadDocuments, selectedCollectionId]);
+  }, [loadDocuments, selectedCollectionId, selectedCollection]);
+
+  const {
+    importProgress,
+    setImportProgress,
+    isImporting,
+    handleFilePicker,
+    handleDragOver,
+    handleDrop,
+    showWebImport,
+    setShowWebImport,
+    webUrl,
+    setWebUrl,
+    maxPages,
+    setMaxPages,
+    maxDepth,
+    setMaxDepth,
+    webCrawlMode,
+    setWebCrawlMode,
+    isCrawling,
+    handleWebImport,
+  } = useRagImports({ selectedCollectionId, loadDocuments });
 
   const resetCreateFormState = useCallback(() => {
     setNewCollectionName("");
     setNewCollectionDescription("");
-    setCollectionKind("files");
+    setCollectionKind("Files");
     setDbConnId(null);
     setSelectedTables([]);
     setAvailableTables([]);
-    setDefaultLimit(50);
   }, []);
 
   const handleCreateCollection = useCallback(async () => {
@@ -190,7 +214,7 @@ export function useRagTabController(navigate: NavigateFunction) {
       return;
     }
 
-    if (collectionKind === "db") {
+    if (collectionKind === "Db") {
       if (!dbConnId) {
         alert("Please select a database connection");
         return;
@@ -203,17 +227,17 @@ export function useRagTabController(navigate: NavigateFunction) {
 
     setIsCreatingCollection(true);
     try {
-      if (collectionKind === "db") {
-        await ragCreateDbCollection(newCollectionName.trim(), newCollectionDescription.trim() || undefined, {
+      let createdCollection: RagCollection;
+      if (collectionKind === "Db") {
+        createdCollection = await ragCreateDbCollection(newCollectionName.trim(), newCollectionDescription.trim() || undefined, {
           db_conn_id: dbConnId!,
           allowlist_profile_id: allowlistProfileId,
           selected_tables: selectedTables,
-          default_limit: defaultLimit,
           max_limit: 200,
           external_llm_policy: "block",
         });
       } else {
-        await createRagCollection({
+        createdCollection = await createRagCollection({
           name: newCollectionName.trim(),
           description: newCollectionDescription.trim() || undefined,
         });
@@ -222,6 +246,9 @@ export function useRagTabController(navigate: NavigateFunction) {
       resetCreateFormState();
       setShowCreateForm(false);
       await loadCollections();
+
+      // Auto-select the newly created collection
+      setSelectedCollectionId(createdCollection.id);
     } catch (err) {
       console.error("Failed to create collection:", err);
       alert("Failed to create collection: " + (err as Error).message);
@@ -232,7 +259,6 @@ export function useRagTabController(navigate: NavigateFunction) {
     allowlistProfileId,
     collectionKind,
     dbConnId,
-    defaultLimit,
     loadCollections,
     newCollectionDescription,
     newCollectionName,
@@ -244,149 +270,6 @@ export function useRagTabController(navigate: NavigateFunction) {
     setShowCreateForm(false);
     resetCreateFormState();
   }, [resetCreateFormState]);
-
-  const importFile = useCallback(
-    async (filePath: string) => {
-      if (!filePath || typeof filePath !== "string") {
-        alert("Invalid file path. Please choose a file again.");
-        return;
-      }
-
-      const fileName = filePath.split(/[/\\]/).pop() || filePath;
-
-      setImportProgress({
-        status: "validating",
-        message: getStatusMessage("validating", fileName),
-        fileName,
-      });
-
-      if (!isSupportedFile(filePath)) {
-        setImportProgress({
-          status: "error",
-          message: `Unsupported file type. Supported formats: ${SUPPORTED_EXTENSIONS.join(", ").toUpperCase()}`,
-          fileName,
-          error: "Unsupported file type",
-        });
-        return;
-      }
-
-      if (selectedCollectionId === null) {
-        setImportProgress({
-          status: "error",
-          message: "Please select a collection first",
-          fileName,
-          error: "No collection selected",
-        });
-        return;
-      }
-
-      setImportProgress({
-        status: "processing",
-        message: getStatusMessage("processing", fileName),
-        fileName,
-      });
-
-      const isCsv = getFileExtension(filePath) === "csv";
-      if (isCsv) {
-        setImportProgress({
-          status: "preprocessing",
-          message: getStatusMessage("preprocessing", fileName),
-          fileName,
-        });
-      }
-
-      try {
-        const preprocessingTimer = isCsv
-          ? setTimeout(() => {
-              setImportProgress({
-                status: "processing",
-                message: "Converting CSV to optimal format for embeddings...",
-                fileName,
-              });
-            }, 1000)
-          : null;
-
-        const progressTimer = setTimeout(
-          () => {
-            setImportProgress({
-              status: "chunking",
-              message: getStatusMessage("chunking", fileName),
-              fileName,
-            });
-          },
-          isCsv ? 2000 : 500
-        );
-
-        const embeddingTimer = setTimeout(
-          () => {
-            setImportProgress({
-              status: "embedding",
-              message: getStatusMessage("embedding", fileName),
-              fileName,
-            });
-          },
-          isCsv ? 3000 : 1500
-        );
-
-        await importRagFile(filePath, selectedCollectionId);
-
-        if (preprocessingTimer) clearTimeout(preprocessingTimer);
-        clearTimeout(progressTimer);
-        clearTimeout(embeddingTimer);
-
-        setImportProgress({
-          status: "complete",
-          message: getStatusMessage("complete", fileName),
-          fileName,
-        });
-
-        await loadDocuments(selectedCollectionId);
-
-        setTimeout(() => {
-          setImportProgress((prev) =>
-            prev.status === "complete" ? { status: "idle", message: "" } : prev
-          );
-        }, 5000);
-      } catch (err) {
-        const fallbackMessage =
-          err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
-        console.error("Failed to import file:", err);
-        setImportProgress({
-          status: "error",
-          message: getStatusMessage("error", fileName),
-          fileName,
-          error: fallbackMessage,
-        });
-      }
-    },
-    [loadDocuments, selectedCollectionId]
-  );
-
-  const handleFilePicker = useCallback(async () => {
-    if (selectedCollectionId === null) return;
-
-    try {
-      const selected = await open({
-        multiple: false,
-        directory: false,
-        title: "Select file to import",
-        filters: [
-          {
-            name: "Supported Files",
-            extensions: SUPPORTED_EXTENSIONS,
-          },
-        ],
-      });
-
-      if (typeof selected === "string") {
-        await importFile(selected);
-      } else if (Array.isArray(selected) && selected[0]) {
-        await importFile(selected[0]);
-      }
-    } catch (err) {
-      console.error("Failed to open file picker:", err);
-    }
-  }, [importFile, selectedCollectionId]);
 
   const handleDeleteCollection = useCallback(
     async (id: number) => {
@@ -428,97 +311,6 @@ export function useRagTabController(navigate: NavigateFunction) {
     [loadDocuments, selectedCollectionId]
   );
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-
-      if (selectedCollectionId === null) {
-        alert("Please select a collection first");
-        return;
-      }
-
-      const files = Array.from(e.dataTransfer.files);
-      const filePath = files[0] ? (files[0] as any).path : undefined;
-
-      if (filePath && isSupportedFile(filePath)) {
-        await importFile(filePath);
-      } else if (!filePath) {
-        alert("Drag and drop path unavailable. Please use the file picker instead.");
-      } else {
-        alert(
-          `Unsupported file type. Supported formats: ${SUPPORTED_EXTENSIONS.join(", ").toUpperCase()}`
-        );
-      }
-    },
-    [importFile, selectedCollectionId]
-  );
-
-  const handleWebImport = useCallback(async () => {
-    if (!webUrl.trim() || !selectedCollectionId) {
-      alert("Please enter a URL and select a collection");
-      return;
-    }
-
-    setIsCrawling(true);
-    setImportProgress({
-      status: "processing",
-      message: "Crawling website...",
-      fileName: webUrl,
-    });
-
-    try {
-      await importRagWeb(webUrl.trim(), selectedCollectionId, maxPages, maxDepth, webCrawlMode);
-      setWebUrl("");
-      setMaxPages(10);
-      setMaxDepth(2);
-      setWebCrawlMode("html");
-      setShowWebImport(false);
-      setImportProgress({
-        status: "complete",
-        message: "Web import completed successfully. Ready for chat.",
-        fileName: webUrl,
-      });
-      await loadDocuments(selectedCollectionId);
-    } catch (err) {
-      console.error("Failed to import web:", err);
-      setImportProgress({
-        status: "error",
-        message: "Failed to import web content",
-        error: (err as Error).message,
-      });
-    } finally {
-      setIsCrawling(false);
-    }
-  }, [loadDocuments, maxDepth, maxPages, selectedCollectionId, webCrawlMode, webUrl]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-
-    const setup = async () => {
-      unlisten = await getCurrentWindow().onDragDropEvent((event) => {
-        if (event.payload.type !== "drop") return;
-        const paths = event.payload.paths ?? [];
-        if (!paths.length) return;
-        if (selectedCollectionId === null) {
-          alert("Please select a collection first");
-          return;
-        }
-
-        void importFile(paths[0]);
-      });
-    };
-
-    void setup();
-
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [importFile, selectedCollectionId]);
-
   const gotoDbConnections = useCallback(() => {
     navigate("/database");
   }, [navigate]);
@@ -556,13 +348,12 @@ export function useRagTabController(navigate: NavigateFunction) {
     selectedTables,
     setSelectedTables,
     availableTables,
-    defaultLimit,
-    setDefaultLimit,
     isLoadingDbData,
     gotoDbConnections,
 
     // db display
     collectionTables,
+    collectionConfig,
 
     // docs
     handleDeleteDocument,

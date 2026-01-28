@@ -25,6 +25,8 @@ impl RagRepository {
         kind: &str,
         config_json: &str,
     ) -> Result<RagCollection> {
+        println!("[DEBUG] create_collection_with_config: name={}, kind={}", name, kind);
+
         let result = sqlx::query_as::<_, RagCollectionEntity>(
             "INSERT INTO collections (name, description, kind, config_json) VALUES (?, ?, ?, ?) RETURNING *",
         )
@@ -36,7 +38,10 @@ impl RagRepository {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create collection: {}", e)))?;
 
-        Ok(result.into())
+        let converted: RagCollection = result.into();
+        println!("[DEBUG] create_collection_with_config: created id={}, name={}, kind={:?}", converted.id, converted.name, converted.kind);
+
+        Ok(converted)
     }
 
     pub async fn get_collection(&self, id: i64) -> Result<RagCollection> {
@@ -63,7 +68,15 @@ impl RagRepository {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to list collections: {}", e)))?;
 
-        Ok(collections.into_iter().map(|c| c.into()).collect())
+        println!("[DEBUG] list_collections: fetched {} collections", collections.len());
+
+        let converted: Vec<RagCollection> = collections.into_iter().map(|c| {
+            let result: RagCollection = c.into();
+            println!("[DEBUG] list_collections: converted id={}, name={}, kind={:?}", result.id, result.name, result.kind);
+            result
+        }).collect();
+
+        Ok(converted)
     }
 
     pub async fn update_collection_config(&self, id: i64, config_json: &str) -> Result<()> {

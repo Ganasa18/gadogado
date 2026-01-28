@@ -9,9 +9,11 @@
 //! The router uses rule-based pattern matching for Stage 1.
 //! Future versions may use LLM-based intent detection.
 
-use crate::application::use_cases::allowlist_validator::{AllowlistRules, AllowlistValidator};
+use super::table_matcher::TableMatcher;
+use super::template_matcher::TemplateMatch;
+use crate::application::use_cases::allowlist_validator::AllowlistRules;
 use crate::domain::error::{AppError, Result};
-use crate::domain::rag_entities::{DbAllowlistProfile, OrderBy, QueryFilter, QueryPlan};
+use crate::domain::rag_entities::{DbAllowlistProfile, OrderBy, QueryFilter, QueryPlan, QueryTemplate};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -78,6 +80,12 @@ pub struct SqlRagRouter {
     table_aliases: HashMap<String, String>,
     /// Column name aliases for fuzzy matching
     column_aliases: HashMap<String, String>,
+    /// Explicitly selected columns per table (from DbConnection config)
+    selected_columns: HashMap<String, Vec<String>>,
+    /// Dynamic table matcher for resolving tables from user queries
+    table_matcher: TableMatcher,
+    /// Optional template matcher for few-shot learning
+    template_matcher: Option<super::template_matcher::TemplateMatcher>,
 }
 
 impl SqlRagRouter {
@@ -85,16 +93,21 @@ impl SqlRagRouter {
     pub fn from_profile(
         profile: &DbAllowlistProfile,
         selected_tables: Vec<String>,
+        selected_columns: HashMap<String, Vec<String>>,
     ) -> Result<Self> {
         let rules: AllowlistRules = serde_json::from_str(&profile.rules_json).map_err(|e| {
             AppError::ValidationError(format!("Invalid allowlist rules JSON: {}", e))
         })?;
 
-        Ok(Self::from_rules(rules, selected_tables))
+        Ok(Self::from_rules(rules, selected_tables, selected_columns))
     }
 
     /// Create a new router from allowlist rules directly
-    pub fn from_rules(rules: AllowlistRules, selected_tables: Vec<String>) -> Self {
+    pub fn from_rules(
+        rules: AllowlistRules,
+        selected_tables: Vec<String>,
+        selected_columns: HashMap<String, Vec<String>>,
+    ) -> Self {
         let mut table_aliases = HashMap::new();
         let mut column_aliases = HashMap::new();
 
@@ -112,11 +125,38 @@ impl SqlRagRouter {
         column_aliases.insert("date".to_string(), "created_at".to_string());
         column_aliases.insert("created".to_string(), "created_at".to_string());
 
+        // Create dynamic table matcher
+        let table_matcher = TableMatcher::from_config(selected_tables.clone(), selected_columns.clone());
+
         Self {
             available_tables: rules.allowed_tables,
             selected_tables,
             table_aliases,
             column_aliases,
+            selected_columns,
+            table_matcher,
+            template_matcher: None, // Will be set separately
+        }
+    }
+
+    /// Set template matcher for few-shot learning
+    pub fn with_templates(mut self, templates: Vec<QueryTemplate>) -> Self {
+        use super::template_matcher::TemplateMatcher;
+        self.template_matcher = Some(TemplateMatcher::new(templates));
+        self
+    }
+
+    /// Get matched templates for a query (for few-shot prompting)
+    pub fn get_matched_templates(
+        &self,
+        query: &str,
+        detected_tables: &[String],
+        max_templates: usize,
+    ) -> Vec<TemplateMatch> {
+        if let Some(ref matcher) = self.template_matcher {
+            matcher.find_matches(query, detected_tables, max_templates)
+        } else {
+            Vec::new()
         }
     }
 
@@ -149,7 +189,7 @@ impl SqlRagRouter {
         let filters = self.build_filters(&intent, allowed_columns);
 
         // Step 5: Determine select columns
-        let select = self.determine_select_columns(&intent, allowed_columns);
+        let select = self.determine_select_columns(&intent, allowed_columns)?;
 
         // Step 6: Build order by if hinted
         let order_by = intent.order_hint.and_then(|(col, dir)| {
@@ -364,38 +404,48 @@ impl SqlRagRouter {
     }
 
     /// Resolve the target table from intent and query
-    fn resolve_table(&self, intent: &DetectedIntent, _query: &str) -> Result<String> {
-        // Use table hint if available
+    /// Now uses dynamic TableMatcher for flexible table resolution
+    fn resolve_table(&self, intent: &DetectedIntent, query: &str) -> Result<String> {
+        // First, use table hint if available from intent detection
         if let Some(ref table) = intent.table_hint {
-            return Ok(table.clone());
-        }
-
-        // Try to infer from entity types
-        for entity in &intent.entities {
-            match entity.entity_type {
-                EntityType::Username | EntityType::Email => {
-                    if let Some(table) = self.table_aliases.get("user") {
-                        return Ok(table.clone());
-                    }
-                }
-                _ => {}
+            // Verify table is in selected tables
+            if self.selected_tables.contains(table) {
+                return Ok(table.clone());
             }
         }
 
-        // Default to first selected table if only one
-        if self.selected_tables.len() == 1 {
-            return Ok(self.selected_tables[0].clone());
-        }
+        // Use dynamic table matcher for intelligent table resolution
+        let query_lower = query.to_lowercase();
+        match self.table_matcher.find_table(&query_lower) {
+            Ok(table_match) => Ok(table_match.table_name),
+            Err(e) => {
+                // Fallback: try to infer from entity types
+                for entity in &intent.entities {
+                    match entity.entity_type {
+                        EntityType::Username | EntityType::Email => {
+                            if let Some(table) = self.table_aliases.get("user") {
+                                if self.selected_tables.contains(table) {
+                                    return Ok(table.clone());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
 
-        // Default to first available table
-        if let Some(table) = self.available_tables.keys().next() {
-            return Ok(table.clone());
-        }
+                // Default to first selected table if only one
+                if self.selected_tables.len() == 1 {
+                    return Ok(self.selected_tables[0].clone());
+                }
 
-        Err(AppError::ValidationError(
-            "Could not determine target table from query. Please specify the table name."
-                .to_string(),
-        ))
+                // Return the original matcher error with more context
+                Err(AppError::ValidationError(format!(
+                    "{}. Available tables in this collection: {:?}. Hint: Try specifying the table name explicitly in your query.",
+                    e,
+                    self.table_matcher.get_table_display_names()
+                )))
+            }
+        }
     }
 
     /// Build filters from extracted entities
@@ -451,35 +501,70 @@ impl SqlRagRouter {
         &self,
         intent: &DetectedIntent,
         allowed_columns: &[String],
-    ) -> Vec<String> {
-        // For exact lookup, return all allowed columns
+    ) -> Result<Vec<String>> {
+        // Basis for selection: either user-selected columns or the allowlist columns
+        let table_name = intent.table_hint.clone().unwrap_or_default();
+        let base_columns = if let Some(columns) = self.selected_columns.get(&table_name) {
+            // If we have specific columns selected for this table, use them
+            columns.clone()
+        } else if let Some(alias) = self.table_aliases.get(&table_name) {
+            // Try via alias
+            self.selected_columns
+                .get(alias)
+                .cloned()
+                .unwrap_or_else(|| allowed_columns.to_vec())
+        } else {
+            // Fallback to allowed columns (allowlist)
+            allowed_columns.to_vec()
+        };
+
+        // Filter out wildcard and ensure they exist in allowed_columns
+        let filtered_allowed: Vec<String> = base_columns
+            .iter()
+            .filter(|c| *c != "*" && allowed_columns.contains(c))
+            .cloned()
+            .collect();
+
+        // For exact lookup, return all filtered allowed columns
         if intent.mode == QueryMode::Exact {
-            return allowed_columns.to_vec();
+            if filtered_allowed.is_empty() {
+                return Err(AppError::ValidationError(format!(
+                    "No accessible columns found for table '{}'",
+                    intent.table_hint.as_ref().unwrap_or(&"unknown".to_string())
+                )));
+            }
+            return Ok(filtered_allowed);
         }
 
         // For list mode, return a subset of useful columns
-        // Prioritize: id, name/username, status, created_at
         let priority_cols = ["id", "username", "name", "status", "created_at", "title"];
         let mut selected: Vec<String> = Vec::new();
 
         for col in &priority_cols {
-            if allowed_columns.contains(&col.to_string()) {
+            if filtered_allowed.contains(&col.to_string()) {
                 selected.push(col.to_string());
             }
         }
 
-        // Add any remaining columns up to a reasonable limit (5)
-        for col in allowed_columns {
-            if !selected.contains(col) && selected.len() < 5 {
+        // Add any remaining columns up to a reasonable limit (8)
+        // Increased from 5 to 8 since the user has a long list of selected columns
+        for col in &filtered_allowed {
+            if !selected.contains(col) && selected.len() < 8 {
                 selected.push(col.clone());
             }
         }
 
         if selected.is_empty() {
-            // Fallback to all allowed columns
-            allowed_columns.to_vec()
+            if filtered_allowed.is_empty() {
+                return Err(AppError::ValidationError(format!(
+                    "No accessible columns found for table '{}'",
+                    intent.table_hint.as_ref().unwrap_or(&"unknown".to_string())
+                )));
+            }
+            // Fallback to all filtered columns
+            Ok(filtered_allowed)
         } else {
-            selected
+            Ok(selected)
         }
     }
 }
@@ -519,6 +604,7 @@ mod tests {
         SqlRagRouter::from_rules(
             rules,
             vec!["users_view".to_string(), "orders_view".to_string()],
+            HashMap::new(),
         )
     }
 

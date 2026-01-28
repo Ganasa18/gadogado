@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+// TODO: tighten this allow once modules are fully wired.
+
 #[path = "config/mod.rs"]
 pub mod config_mod;
 pub use config_mod as config;

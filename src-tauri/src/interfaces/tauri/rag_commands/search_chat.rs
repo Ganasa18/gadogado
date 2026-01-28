@@ -7,6 +7,8 @@
 //! - Answer verification and correction
 
 use crate::application::use_cases::prompt_engine::{PromptEngine, VerificationResult};
+use crate::application::use_cases::context_manager::{ContextManager, BuildContext};
+use crate::application::use_cases::conversation_service::ConversationMessage;
 use crate::domain::error::Result;
 use crate::interfaces::http::add_log;
 use std::sync::Arc;
@@ -153,7 +155,17 @@ pub async fn rag_query(
         start.elapsed().as_millis() as u64,
     );
 
-    let prompt = PromptEngine::build_prompt(&request.query, &results).map_err(|e| {
+    let language = request.language.as_deref();
+    let prompt = if request.enable_few_shot.unwrap_or(false) {
+        PromptEngine::build_conversational_nl_prompt_with_few_shot(
+            &request.query,
+            &results,
+            language,
+        )
+    } else {
+        PromptEngine::build_conversational_nl_prompt(&request.query, &results, language)
+    }
+    .map_err(|e| {
         add_log(
             &state.logs,
             "ERROR",
@@ -214,33 +226,117 @@ pub async fn rag_chat_with_context(
             e
         })?;
 
-    // Build prompt based on whether we have conversation history
-    let (prompt, context_summary) = if let Some(ref messages) = request.messages {
-        // Convert messages to tuple format for conversational prompt
-        let message_tuples: Vec<(String, String)> = messages
+    // Extract language for conversational responses
+    let language = request.language.as_deref();
+
+    // Build RAG context string from results
+    let rag_context = results
+        .iter()
+        .map(|r| {
+            let score_str = r.score.map_or("N/A".to_string(), |s| format!("{:.2}", s));
+            format!("Content: {}\nScore: {}", r.content, score_str)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    // Build prompt with context management
+    let (prompt, context_summary, context_managed) = if let Some(ref messages) = request.messages {
+        // Load global RAG settings and model limit for context management
+        let global_settings = state.rag_repository.get_global_settings().await
+            .unwrap_or_else(|e| {
+                add_log(
+                    &state.logs,
+                    "WARN",
+                    "RAG",
+                    &format!("Failed to load global settings, using defaults: {}", e),
+                );
+                crate::domain::context_config::ContextWindowConfig::default()
+            });
+
+        // Get provider/model from request or use defaults
+        let provider = request.provider.as_deref().unwrap_or("local").to_string();
+        let model = request.model.as_deref().unwrap_or("default").to_string();
+
+        // Get model context limit
+        let model_limit = state.rag_repository.get_or_infer_limit(&provider, &model).await
+            .unwrap_or_else(|e| {
+                add_log(
+                    &state.logs,
+                    "WARN",
+                    "RAG",
+                    &format!("Failed to get model limit, using defaults: {}", e),
+                );
+                crate::domain::context_config::ModelContextLimit {
+                    id: 0,
+                    provider: provider.clone(),
+                    model_name: model.clone(),
+                    context_window: 8000,
+                    max_output_tokens: 2048,
+                }
+            });
+
+        // Create context manager
+        let context_manager = ContextManager::new(
+            global_settings,
+            provider.clone(),
+            model.clone(),
+            model_limit.context_window,
+        );
+
+        // Convert ChatMessage to ConversationMessage format
+        let conversation_messages: Vec<ConversationMessage> = messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| ConversationMessage {
+                id: i as i64,
+                conversation_id: request.conversation_id.unwrap_or(0),
+                role: m.role.clone(),
+                content: m.content.clone(),
+                sources: None,
+                created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
+            })
+            .collect();
+
+        // Use ContextManager to build context
+        let build_context = context_manager.build_context(conversation_messages, &rag_context)
+            .unwrap_or_else(|e| {
+                add_log(
+                    &state.logs,
+                    "WARN",
+                    "RAG",
+                    &format!("Context management failed, using simple approach: {}", e),
+                );
+                // Fallback to simple context
+                BuildContext {
+                    messages: messages.iter().skip(messages.len().saturating_sub(3)).cloned()
+                        .map(|m| ConversationMessage {
+                            id: 0,
+                            conversation_id: 0,
+                            role: m.role.clone(),
+                            content: m.content.clone(),
+                            sources: None,
+                            created_at: String::new(),
+                        }).collect(),
+                    summary: None,
+                    token_estimate: rag_context.len() / 4,
+                    was_compacted: false,
+                    strategy_used: crate::domain::context_config::CompactionStrategy::Truncate,
+                }
+            });
+
+        // Convert managed messages back to tuples
+        let message_tuples: Vec<(String, String)> = build_context.messages
             .iter()
             .map(|m| (m.role.clone(), m.content.clone()))
             .collect();
 
-        // Build a simple summary from previous messages
-        let summary = if messages.len() > 3 {
-            Some(
-                messages
-                    .iter()
-                    .take(messages.len().saturating_sub(3))
-                    .map(|m| format!("{}: {}", m.role, truncate_message(&m.content, 100)))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            )
-        } else {
-            None
-        };
-
-        let prompt = PromptEngine::build_conversational_prompt(
+        // Use new conversational prompt with managed chat history
+        let prompt = PromptEngine::build_conversational_prompt_with_chat(
             &request.query,
             &results,
-            summary.as_deref(),
-            &message_tuples[message_tuples.len().saturating_sub(3)..],
+            build_context.summary.as_deref(),
+            &message_tuples,
+            language,
         )
         .map_err(|e| {
             add_log(
@@ -252,21 +348,44 @@ pub async fn rag_chat_with_context(
             e
         })?;
 
-        (prompt, summary)
-    } else {
-        // Use reflective prompt for better quality
-        let prompt =
-            PromptEngine::build_reflective_prompt(&request.query, &results).map_err(|e| {
-                add_log(
-                    &state.logs,
-                    "ERROR",
-                    "RAG",
-                    &format!("Prompt building failed: {}", e),
-                );
-                e
-            })?;
+        add_log(
+            &state.logs,
+            "INFO",
+            "RAG",
+            &format!(
+                "Context managed: compacted={}, strategy={}, tokens={}, messages={}/{}",
+                build_context.was_compacted,
+                build_context.strategy_used,
+                build_context.token_estimate,
+                build_context.messages.len(),
+                request.messages.as_ref().map(|m| m.len()).unwrap_or(0)
+            ),
+        );
 
-        (prompt, None)
+        let context_info = ContextManagedInfo {
+            was_compacted: build_context.was_compacted,
+            strategy_used: build_context.strategy_used.to_string(),
+            token_estimate: build_context.token_estimate,
+            messages_used: build_context.messages.len(),
+            messages_total: request.messages.as_ref().map(|m| m.len()).unwrap_or(0),
+        };
+
+        (prompt, build_context.summary, Some(context_info))
+    } else {
+        // Use conversational NL prompt (no chat history)
+        let prompt =
+            PromptEngine::build_conversational_nl_prompt(&request.query, &results, language)
+                .map_err(|e| {
+                    add_log(
+                        &state.logs,
+                        "ERROR",
+                        "RAG",
+                        &format!("Prompt building failed: {}", e),
+                    );
+                    e
+                })?;
+
+        (prompt, None, None)
     };
 
     add_log(
@@ -302,6 +421,7 @@ pub async fn rag_chat_with_context(
         conversation_id: request.conversation_id,
         context_summary,
         verified: false, // Verification happens client-side with LLM
+        context_managed,
     })
 }
 

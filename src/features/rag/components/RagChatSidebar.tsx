@@ -1,14 +1,13 @@
-import { useState } from "react";
 import {
-  Box,
-  ChevronDown,
-  ChevronUp,
   MessageSquare,
-  Sparkles,
   Trash2,
   Database,
+  Settings,
+  Plus,
+  MessageCircleMore,
 } from "lucide-react";
 import { cn } from "../../../utils/cn";
+import { Select } from "../../../shared/components/Select";
 import type { Conversation } from "../api";
 import type { RagCollection, ChatMode } from "../types";
 
@@ -41,216 +40,194 @@ export function RagChatSidebar(props: {
     onSelectFreeChatConversation,
     onDeleteConversation,
     onOpenSessionConfig,
-    retrievalSummary,
     chatMode,
     onChangeChatMode,
     onNewFreeChat,
   } = props;
 
-  const [showConversations, setShowConversations] = useState(false);
-
   return (
-    <aside className="w-[300px] border-r border-app-border/40 flex flex-col bg-app-bg">
-      <div className="px-5 py-6 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-lg bg-app-accent/10">
-            <Sparkles className="w-5 h-5 text-app-accent" />
+    <aside className="w-[280px] border-r border-app-border/30 flex flex-col bg-app-bg select-none">
+      {/* Brand Header */}
+      <div className="p-6">
+        <div className="flex items-center gap-3 bg-app-card/30 p-4 rounded-2xl border border-app-border/20">
+          <div className="w-10 h-10 rounded-xl bg-app-accent flex items-center justify-center">
+            <MessageCircleMore className="w-6 h-6 text-white" />
           </div>
-          <div>
-            <h2 className="text-sm font-semibold tracking-tight">RAG Assistant</h2>
-            <div className="text-[10px] text-app-text-muted font-medium">Knowledge Base</div>
+          <div className="flex flex-col">
+            <h2 className="text-sm font-bold text-app-text leading-tight">
+              RAG Assistant
+            </h2>
+            <span className="text-[11px] text-app-subtext font-medium">Enterprise Knowledge</span>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 min-h-0">
-        {/* Mode Toggle Section */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between px-3 mb-2">
-            <span className="text-[10px] font-bold text-app-subtext uppercase tracking-wider">
-              Mode
-            </span>
-          </div>
-
+      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6">
+        {/* Mode Selector */}
+        <div className="space-y-2">
           <button
             onClick={() => onChangeChatMode("free")}
             className={cn(
-              "w-full text-left px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-3 group mb-1",
+              "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-semibold text-sm border",
               chatMode === "free"
-                ? "bg-purple-500 text-white shadow-md"
-                : "text-app-text-muted hover:bg-app-card hover:text-app-text",
-            )}>
-            <MessageSquare className="w-4 h-4" />
+                ? "bg-app-accent text-white border-transparent"
+                : "bg-transparent text-app-subtext border-app-border/40 hover:bg-app-card/50",
+            )}
+          >
+            <MessageSquare className="w-5 h-5" />
             <span>Free Chat</span>
           </button>
 
           <button
             onClick={() => onChangeChatMode("rag")}
             className={cn(
-              "w-full text-left px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-3 group",
+              "w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all font-semibold text-sm border",
               chatMode === "rag"
-                ? "bg-app-accent text-white shadow-md"
-                : "text-app-text-muted hover:bg-app-card hover:text-app-text",
-            )}>
-            <Database className="w-4 h-4" />
-            <span>RAG Mode</span>
+                ? "bg-app-accent text-white border-transparent"
+                : "bg-transparent text-app-subtext border-app-border/40 hover:bg-app-card/50",
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <Database className="w-5 h-5" />
+              <span>RAG Mode</span>
+            </div>
           </button>
         </div>
 
-        {/* Collections Section - Only show in RAG mode */}
-        {chatMode === "rag" && (
-          <>
-            <div className="flex items-center justify-between px-3 mb-2 mt-2">
-              <span className="text-[10px] font-bold text-app-subtext uppercase tracking-wider">
+        {/* Collections in RAG mode */}
+        {chatMode === "rag" && collections.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-2">
+              <span className="text-[10px] font-bold text-app-subtext uppercase tracking-widest">
                 Collections
               </span>
             </div>
-
-            <div className="space-y-1">
-              {collections.length === 0 ? (
-                <div className="px-3 py-4 text-center">
-                  <p className="text-xs text-app-text-muted">No collections found</p>
-                </div>
-              ) : (
-                collections.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => onSelectCollection(c.id)}
-                    className={cn(
-                      "w-full text-left px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-3 group",
-                      selectedCollectionId === c.id
-                        ? "bg-app-accent text-white shadow-md shadow-app-accent/10"
-                        : "text-app-text-muted hover:bg-app-card hover:text-app-text",
-                    )}>
-                    <Box
-                      className={cn(
-                        "w-4 h-4",
-                        selectedCollectionId === c.id
-                          ? "text-white/90"
-                          : "text-app-text-muted group-hover:text-app-text",
-                      )}
-                    />
-                    <span className="truncate">{c.name}</span>
-                  </button>
-                ))
-              )}
+            <div className="px-1">
+              <Select
+                options={collections.map((c) => ({
+                  value: String(c.id),
+                  label: c.name,
+                }))}
+                value={String(selectedCollectionId || "")}
+                onChange={(val) => onSelectCollection(Number(val))}
+                placeholder="Select Collection..."
+                searchable={true}
+              />
             </div>
-          </>
+          </div>
         )}
 
-        {/* Free Chat Conversations */}
-        {chatMode === "free" && (
-          <>
-            <div className="flex items-center justify-between px-3 mb-2 mt-2">
-              <span className="text-[10px] font-bold text-app-subtext uppercase tracking-wider">
-                Free Chat History
-              </span>
-              <button
-                onClick={onNewFreeChat}
-                className="text-[10px] text-purple-400 hover:text-purple-300 font-medium">
-                + New
-              </button>
-            </div>
+        {/* Recent Chats Section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <span className="text-[10px] font-bold text-app-subtext uppercase tracking-widest">
+              Recent Chats
+            </span>
+            <button
+              onClick={chatMode === "free" ? onNewFreeChat : () => {}}
+              className="p-1 hover:bg-app-card rounded transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5 text-app-accent" />
+            </button>
+          </div>
 
-            <div className="space-y-1">
-              {freeChatConversations.length === 0 ? (
+          <div className="space-y-1">
+            {chatMode === "free" ? (
+              freeChatConversations.length === 0 ? (
                 <div className="px-3 py-4 text-center">
-                  <p className="text-xs text-app-text-muted">No chat history</p>
+                  <p className="text-[11px] text-app-subtext">No recent free chats</p>
                 </div>
               ) : (
                 freeChatConversations.map((conv) => (
-                  <button
+                  <HistoryItem
                     key={conv.id}
-                    onClick={() => void onSelectFreeChatConversation(conv.id)}
-                    className={cn(
-                      "w-full text-left px-3 py-2 rounded-lg text-xs transition-all duration-200 flex items-center justify-between gap-2 group",
-                      currentFreeChatConversationId === conv.id
-                        ? "bg-app-card border border-purple-500/30"
-                        : "hover:bg-app-card/50",
-                    )}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <MessageSquare className="w-3.5 h-3.5 text-app-text-muted shrink-0" />
-                      <span className="truncate text-app-text-muted">{conv.title || "Untitled"}</span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteConversation(conv.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all"
-                      aria-label="Delete conversation">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </button>
+                    conv={conv}
+                    isActive={currentFreeChatConversationId === conv.id}
+                    onSelect={() => onSelectFreeChatConversation(conv.id)}
+                    onDelete={() => onDeleteConversation(conv.id)}
+                  />
                 ))
-              )}
-            </div>
-          </>
-        )}
-
-        {/* RAG Chat History - Only show in RAG mode */}
-        {chatMode === "rag" && selectedCollectionId && conversations.length > 0 && (
-          <div className="mt-6">
-            <button
-              onClick={() => setShowConversations(!showConversations)}
-              className="flex items-center justify-between w-full px-3 mb-2">
-              <span className="text-[10px] font-bold text-app-subtext uppercase tracking-wider">
-                Chat History ({conversations.length})
-              </span>
-              {showConversations ? (
-                <ChevronUp className="w-3.5 h-3.5 text-app-subtext" />
+              )
+            ) : (
+              conversations.length === 0 ? (
+                <div className="px-3 py-4 text-center">
+                  <p className="text-[11px] text-app-subtext">No recent RAG chats</p>
+                </div>
               ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-app-subtext" />
-              )}
-            </button>
-
-            {showConversations && (
-              <div className="space-y-1">
-                {conversations.map((conv) => (
-                  <button
+                conversations.map((conv) => (
+                  <HistoryItem
                     key={conv.id}
-                    onClick={() => void onSelectConversation(conv.id)}
-                    className={cn(
-                      "w-full text-left px-3 py-2 rounded-lg text-xs transition-all duration-200 flex items-center justify-between gap-2 group",
-                      currentConversationId === conv.id
-                        ? "bg-app-card border border-app-accent/30"
-                        : "hover:bg-app-card/50",
-                    )}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <MessageSquare className="w-3.5 h-3.5 text-app-text-muted shrink-0" />
-                      <span className="truncate text-app-text-muted">{conv.title || "Untitled"}</span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteConversation(conv.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all"
-                      aria-label="Delete conversation">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </button>
-                ))}
-              </div>
+                    conv={conv}
+                    isActive={currentConversationId === conv.id}
+                    onSelect={() => onSelectConversation(conv.id)}
+                    onDelete={() => onDeleteConversation(conv.id)}
+                  />
+                ))
+              )
             )}
           </div>
-        )}
+        </div>
       </div>
 
-      <div className="p-4 mt-auto border-t border-app-border/40 bg-app-card/20 backdrop-blur-sm space-y-5">
-        <button
-          type="button"
-          onClick={onOpenSessionConfig}
-          className="w-full flex items-center justify-between px-1 py-1 rounded-lg text-left transition-colors hover:bg-app-bg/40">
-          <div className="min-w-0">
-            <div className="text-xs font-medium text-app-subtext">Session config</div>
-            <div className="text-[10px] text-app-text-muted mt-1 truncate">{retrievalSummary}</div>
+      {/* Sidebar Footer */}
+      <div className="p-4 border-t border-app-border/30 bg-app-card/5">
+        <div className="flex items-center justify-between mb-2 px-2">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-app-card border border-app-border/40 flex items-center justify-center">
+              <div className="w-4 h-4 rounded-full bg-app-accent/20 flex items-center justify-center">
+                <div className="w-2 h-2 rounded-full bg-app-accent" />
+              </div>
+            </div>
+            <span className="text-xs font-semibold text-app-text">
+              Developer Mode
+            </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] font-medium text-app-text-muted">Settings</span>
-          </div>
-        </button>
+          <button
+            onClick={onOpenSessionConfig}
+            className="p-2 hover:bg-app-card rounded-lg transition-all text-app-subtext hover:text-app-accent border border-transparent hover:border-app-border/40"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </aside>
+  );
+}
+
+function HistoryItem({
+  conv,
+  isActive,
+  onSelect,
+  onDelete,
+}: {
+  conv: Conversation;
+  isActive: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        "group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all border border-transparent",
+        isActive
+          ? "bg-app-card text-app-text border-app-border/60 shadow-sm"
+          : "text-app-subtext hover:bg-app-card/40 hover:text-app-text",
+      )}
+    >
+      <MessageSquare className={cn("w-3.5 h-3.5 shrink-0", isActive ? "text-app-accent" : "text-app-subtext")} />
+      <span className="truncate text-[12px] font-medium grow">
+        {conv.title || "Untitled Chat"}
+      </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all rounded"
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
+    </div>
   );
 }

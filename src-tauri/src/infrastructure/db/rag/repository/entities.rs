@@ -1,7 +1,7 @@
 use crate::domain::rag_entities::DocumentWarning;
 use crate::domain::rag_entities::{
-    CollectionQualityMetrics, ColumnInfo, DbAllowlistProfile, DbConnection, RagCollection,
-    RagDocument, RagDocumentChunk, RagExcelData, RetrievalGap,
+    CollectionQualityMetrics, ColumnInfo, DbAllowlistProfile, DbConnection, QueryTemplate,
+    RagCollection, RagDocument, RagDocumentChunk, RagExcelData, RetrievalGap,
 };
 
 #[derive(sqlx::FromRow)]
@@ -295,6 +295,55 @@ impl From<ColumnInfoEntity> for ColumnInfo {
             is_nullable: entity.is_nullable,
             is_primary_key: entity.is_primary_key,
             position: entity.position,
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub(super) struct QueryTemplateEntity {
+    pub(super) id: i64,
+    pub(super) allowlist_profile_id: i64,
+    pub(super) name: String,
+    pub(super) description: Option<String>,
+    pub(super) intent_keywords: String,  // JSON stored as text
+    pub(super) example_question: String,
+    pub(super) query_pattern: String,
+    pub(super) pattern_type: String,
+    pub(super) tables_used: String,       // JSON stored as text
+    pub(super) priority: i32,
+    pub(super) is_enabled: i64,
+    pub(super) is_pattern_agnostic: i64,  // NEW FIELD
+    pub(super) created_at: String,
+    pub(super) updated_at: String,
+}
+
+impl From<QueryTemplateEntity> for QueryTemplate {
+    fn from(entity: QueryTemplateEntity) -> Self {
+        // Parse JSON fields
+        let intent_keywords: Vec<String> = serde_json::from_str(&entity.intent_keywords)
+            .unwrap_or_default();
+        let tables_used: Vec<String> = serde_json::from_str(&entity.tables_used)
+            .unwrap_or_default();
+
+        Self {
+            id: entity.id,
+            allowlist_profile_id: entity.allowlist_profile_id,
+            name: entity.name,
+            description: entity.description,
+            intent_keywords,
+            example_question: entity.example_question,
+            query_pattern: entity.query_pattern,
+            pattern_type: entity.pattern_type,
+            tables_used,
+            priority: entity.priority,
+            is_enabled: entity.is_enabled != 0,
+            is_pattern_agnostic: entity.is_pattern_agnostic != 0,  // NEW FIELD
+            created_at: chrono::DateTime::parse_from_rfc3339(&entity.created_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now()),
+            updated_at: chrono::DateTime::parse_from_rfc3339(&entity.updated_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now()),
         }
     }
 }

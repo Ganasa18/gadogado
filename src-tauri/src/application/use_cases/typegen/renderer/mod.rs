@@ -11,7 +11,7 @@ use registry::TypeNameRegistry;
 
 pub(super) struct TypeRenderer {
     pub(super) language: TargetLanguage,
-    pub(super) registry: TypeNameRegistry,
+    registry: TypeNameRegistry,
     emitted: HashSet<String>,
     definitions: Vec<String>,
     pub(super) uses_dynamic: bool,

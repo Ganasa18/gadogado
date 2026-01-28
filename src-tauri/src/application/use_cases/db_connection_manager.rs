@@ -15,12 +15,45 @@
 use crate::domain::error::{AppError, Result};
 use crate::domain::rag_entities::{ColumnInfo, DbConnection, DbConnectionInput, TableInfo, TestConnectionResult};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
-use sqlx::{Column, Pool, Postgres, Row};
+use sqlx::{Column, Pool, Postgres, Row, TypeInfo, ValueRef};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
+
+// Import bigdecimal for NUMERIC type support
+use bigdecimal::BigDecimal;
+
+/// Check if a string contains a keyword as a whole word (not as substring)
+/// This prevents false positives like "CREATED_AT" matching "CREATE"
+fn contains_whole_word(text: &str, keyword: &str) -> bool {
+    let keyword_len = keyword.len();
+    let text_len = text.len();
+
+    if keyword_len > text_len {
+        return false;
+    }
+
+    let text_bytes = text.as_bytes();
+    let keyword_bytes = keyword.as_bytes();
+
+    for i in 0..=(text_len - keyword_len) {
+        // Check if the substring matches
+        if &text_bytes[i..i + keyword_len] == keyword_bytes {
+            // Check if it's a whole word (surrounded by non-alphanumeric chars or boundaries)
+            let before_ok = i == 0 || !text_bytes[i - 1].is_ascii_alphanumeric();
+            let after_ok = i + keyword_len == text_len
+                || !text_bytes[i + keyword_len].is_ascii_alphanumeric();
+
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+    }
+
+    false
+}
 
 /// Configuration for the connection manager
 #[derive(Debug, Clone)]
@@ -553,28 +586,30 @@ impl DbConnectionManager {
     }
 
     /// Execute a SELECT query and return results as JSON
-    /// SECURITY: Only SELECT statements are allowed
+    /// SECURITY: Only SELECT statements are allowed (including CTEs starting with WITH)
     pub async fn execute_select(
         &self,
         conn: &DbConnection,
         sql: &str,
         params: &[serde_json::Value],
     ) -> Result<QueryResult> {
-        // Security check: only allow SELECT
+        // Security check: only allow SELECT and CTE (WITH ... SELECT)
+        // CTE queries start with "WITH" but are still read-only SELECT queries
         let sql_upper = sql.trim().to_uppercase();
-        if !sql_upper.starts_with("SELECT") {
+        if !sql_upper.starts_with("SELECT") && !sql_upper.starts_with("WITH") {
             return Err(AppError::ValidationError(
-                "Only SELECT queries are allowed".to_string(),
+                "Only SELECT queries are allowed (including CTEs starting with WITH)".to_string(),
             ));
         }
 
-        // Block dangerous keywords
+        // Block dangerous keywords using word boundary matching
+        // This prevents false positives like "CREATED_AT" matching "CREATE"
         let blocked_keywords = [
             "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE",
             "PRAGMA", "ATTACH", "DETACH",
         ];
         for keyword in blocked_keywords {
-            if sql_upper.contains(keyword) {
+            if contains_whole_word(&sql_upper, keyword) {
                 return Err(AppError::ValidationError(format!(
                     "Query contains forbidden keyword: {}",
                     keyword
@@ -647,14 +682,52 @@ impl DbConnectionManager {
         })
     }
 
+    /// Format a number string with thousands separators for better readability
+    /// e.g., "1000000" → "1,000,000", "100000" → "100,000"
+    fn format_number_with_separators(s: &str) -> String {
+        // Split by decimal point if present (handle decimal numbers like "1000.50")
+        let parts: Vec<&str> = s.split('.').collect();
+        let integer_part = parts.get(0).unwrap_or(&s);
+
+        // Add thousands separators to integer part
+        let formatted = integer_part
+            .chars()
+            .rev()
+            .collect::<Vec<_>>()
+            .chunks(3)
+            .map(|chunk| chunk.into_iter().collect::<String>())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(",");
+
+        // Add back decimal part if present
+        if parts.len() > 1 {
+            format!("{}.{}", formatted, parts[1])
+        } else {
+            formatted
+        }
+    }
+
     /// Extract a column value from a row as serde_json::Value
     fn extract_column_value(row: &sqlx::postgres::PgRow, index: usize) -> serde_json::Value {
         // Try different types in order of likelihood
+
+        // 1. String (most common, includes TEXT, VARCHAR)
+        // Try as str first to catch string-like types more reliably
+        if let Ok(v) = row.try_get::<Option<&str>, _>(index) {
+            return v
+                .map(|s| serde_json::Value::String(s.to_string()))
+                .unwrap_or(serde_json::Value::Null);
+        }
         if let Ok(v) = row.try_get::<Option<String>, _>(index) {
             return v
                 .map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null);
         }
+
+        // 2. Integers
         if let Ok(v) = row.try_get::<Option<i64>, _>(index) {
             return v
                 .map(|n| serde_json::Value::Number(n.into()))
@@ -665,29 +738,89 @@ impl DbConnectionManager {
                 .map(|n| serde_json::Value::Number(n.into()))
                 .unwrap_or(serde_json::Value::Null);
         }
+        if let Ok(v) = row.try_get::<Option<i16>, _>(index) {
+            return v
+                .map(|n| serde_json::Value::Number(n.into()))
+                .unwrap_or(serde_json::Value::Null);
+        }
+
+        // 3. Floats
         if let Ok(v) = row.try_get::<Option<f64>, _>(index) {
             return v
                 .and_then(|n| serde_json::Number::from_f64(n))
                 .map(serde_json::Value::Number)
                 .unwrap_or(serde_json::Value::Null);
         }
+        if let Ok(v) = row.try_get::<Option<f32>, _>(index) {
+            return v
+                .and_then(|n| serde_json::Number::from_f64(n as f64))
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null);
+        }
+
+        // 4. Boolean
         if let Ok(v) = row.try_get::<Option<bool>, _>(index) {
             return v
                 .map(serde_json::Value::Bool)
                 .unwrap_or(serde_json::Value::Null);
         }
+
+        // 5. PostgreSQL NUMERIC/DECIMAL - use BigDecimal from bigdecimal crate
+        // With the 'bigdecimal' feature enabled, sqlx can decode NUMERIC as BigDecimal
+        // Format with thousands separators for better readability (e.g., 1000000 → "1,000,000")
+        if let Ok(v) = row.try_get::<Option<BigDecimal>, _>(index) {
+            return v
+                .map(|n| {
+                    // Convert to string and add thousands separators
+                    let s = n.to_string();
+                    serde_json::Value::String(Self::format_number_with_separators(&s))
+                })
+                .unwrap_or(serde_json::Value::Null);
+        }
+
+        // 6. DateTime with timezone (TIMESTAMPTZ)
         if let Ok(v) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(index) {
             return v
                 .map(|dt| serde_json::Value::String(dt.to_rfc3339()))
                 .unwrap_or(serde_json::Value::Null);
         }
+
+        // 7. DateTime without timezone (TIMESTAMP)
+        if let Ok(v) = row.try_get::<Option<chrono::NaiveDateTime>, _>(index) {
+            return v
+                .map(|dt| serde_json::Value::String(dt.to_string()))
+                .unwrap_or(serde_json::Value::Null);
+        }
+
+        // 7. Date (DATE)
         if let Ok(v) = row.try_get::<Option<chrono::NaiveDate>, _>(index) {
             return v
                 .map(|d| serde_json::Value::String(d.to_string()))
                 .unwrap_or(serde_json::Value::Null);
         }
 
-        // Default to null for unsupported types
+        // 8. Time (TIME)
+        if let Ok(v) = row.try_get::<Option<chrono::NaiveTime>, _>(index) {
+            return v
+                .map(|t| serde_json::Value::String(t.to_string()))
+                .unwrap_or(serde_json::Value::Null);
+        }
+
+        // 9. Fallback: For truly unsupported types (like NUMERIC/DECIMAL), provide helpful message
+        // NUMERIC types in PostgreSQL require special handling
+        if let Ok(raw_value) = row.try_get_raw(index) {
+            if !raw_value.is_null() {
+                let type_info = raw_value.type_info();
+                let type_name = type_info.name();
+                warn!(
+                    "Column type '{}' at index {} not supported. NUMERIC columns: Use ::TEXT cast in SQL query, or enable 'bigdecimal' feature in sqlx",
+                    type_name, index
+                );
+                return serde_json::Value::String(format!("<{}>", type_name));
+            }
+        }
+
+        // 10. Final fallback to null
         serde_json::Value::Null
     }
 

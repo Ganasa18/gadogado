@@ -4,8 +4,9 @@ import {
   Lightbulb,
   MessageSquare,
   ShieldCheck,
-  Sparkles,
+  BookOpenCheck ,
   Keyboard,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "../../../shared/components/Button";
 
@@ -95,7 +96,7 @@ export default function TutorialTab() {
             size="lg"
             className="h-16 px-10 rounded-2xl text-lg font-bold group">
             Start Engineering
-            <Sparkles className="ml-2 w-5 h-5 group-hover:rotate-12 transition-transform" />
+            <BookOpenCheck className="ml-2 w-5 h-5 group-hover:rotate-12 transition-transform" />
           </Button>
         </div>
       </div>

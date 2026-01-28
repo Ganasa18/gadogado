@@ -8,6 +8,7 @@ use std::time::Duration;
 
 mod chunks;
 mod collections;
+mod context_settings;
 mod db_connector;
 mod documents;
 mod entities;

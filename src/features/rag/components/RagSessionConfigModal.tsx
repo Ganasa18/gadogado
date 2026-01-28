@@ -21,6 +21,8 @@ export function RagSessionConfigModal(props: {
   setCandidateK: (v: number) => void;
   rerankK: number;
   setRerankK: (v: number) => void;
+  dbFinalK: number;
+  setDbFinalK: (v: number) => void;
 }) {
   const {
     open,
@@ -40,6 +42,8 @@ export function RagSessionConfigModal(props: {
     setCandidateK,
     rerankK,
     setRerankK,
+    dbFinalK,
+    setDbFinalK,
   } = props;
 
   const [helpOpen, setHelpOpen] = useState<"top_k" | "candidate_k" | "rerank_k" | null>(
@@ -456,6 +460,30 @@ export function RagSessionConfigModal(props: {
                       </div>
                       <div className="text-[10px] text-app-text-muted/70 px-1 leading-relaxed">
                         Higher values can improve recall, but cost more CPU.
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 border-t border-app-border/30">
+                      <label className="text-[10px] text-app-text-muted font-medium ml-1">
+                        DB Query Results
+                      </label>
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-app-text-muted/70 px-1">db_final_k</div>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={dbFinalK}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (Number.isNaN(v)) return;
+                            setDbFinalK(Math.max(1, Math.min(100, v)));
+                          }}
+                          className="w-full bg-app-card border border-app-border/60 rounded-lg py-2 px-3 text-xs outline-none focus:border-app-accent/50 focus:ring-1 focus:ring-app-accent/20 transition-all text-app-text font-medium"
+                        />
+                      </div>
+                      <div className="text-[10px] text-app-text-muted/70 px-1 leading-relaxed">
+                        Max results to show from database queries after reranking.
                       </div>
                     </div>
                   </div>

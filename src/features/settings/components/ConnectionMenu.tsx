@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { MoreVertical, RefreshCw, Settings, Database, Trash2 } from "lucide-react";
+import { MoreVertical, RefreshCw, Settings, Sliders, Trash2 } from "lucide-react";
 import type { DbConnection } from "../../rag/types";
 
 interface ConnectionMenuProps {
@@ -11,6 +11,7 @@ interface ConnectionMenuProps {
   onDeleteClick: (id: number, name: string) => void;
   onConfigureProfile: (connection: DbConnection) => void;
   onManageTables: (connection: DbConnection) => void;
+  onEditConfig?: (connection: DbConnection) => void;
 }
 
 interface Position {
@@ -22,8 +23,7 @@ export function ConnectionMenu({
   connection,
   onTest,
   onDeleteClick,
-  onConfigureProfile,
-  onManageTables,
+  onEditConfig,
 }: ConnectionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
@@ -57,7 +57,8 @@ export function ConnectionMenu({
 
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [isOpen]);
 
@@ -69,10 +70,7 @@ export function ConnectionMenu({
   const dropdownContent = position ? (
     <>
       {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-100"
-        onClick={() => setIsOpen(false)}
-      />
+      <div className="fixed inset-0 z-100" onClick={() => setIsOpen(false)} />
       {/* Dropdown Menu - Fixed positioning to avoid table overflow clipping */}
       <motion.div
         ref={menuRef}
@@ -85,29 +83,37 @@ export function ConnectionMenu({
           top: `${position.top}px`,
           right: `${position.right}px`,
         }}
-        className="w-52 bg-app-panel border border-app-border rounded-lg shadow-xl z-110 overflow-hidden"
-      >
+        className="w-52 bg-app-panel border border-app-border rounded-lg shadow-xl z-110 overflow-hidden">
         <div className="py-1">
           <button
             onClick={() => handleAction(() => onTest(connection.id))}
-            className="w-full px-4 py-2.5 text-left text-sm text-app-text hover:bg-app-card flex items-center gap-3 transition-colors"
-          >
+            className="w-full px-4 py-2.5 text-left text-sm text-app-text hover:bg-app-card flex items-center gap-3 transition-colors">
             <RefreshCw className="w-4 h-4 text-app-subtext" />
             Test Connection
           </button>
           <div className="h-px bg-app-border/40 my-1" />
+          {onEditConfig && (
+            <button
+              onClick={() => handleAction(() => onEditConfig(connection))}
+              className="w-full px-4 py-2.5 text-left text-sm text-app-text hover:bg-app-card flex items-center gap-3 transition-colors">
+              <Sliders className="w-4 h-4 text-app-subtext" />
+              Edit Config (Limit)
+            </button>
+          )}
           <button
-            onClick={() => handleAction(() => navigate(`/database/setup/${connection.id}`))}
-            className="w-full px-4 py-2.5 text-left text-sm text-app-text hover:bg-app-card flex items-center gap-3 transition-colors"
-          >
+            onClick={() =>
+              handleAction(() => navigate(`/database/setup/${connection.id}`))
+            }
+            className="w-full px-4 py-2.5 text-left text-sm text-app-text hover:bg-app-card flex items-center gap-3 transition-colors">
             <Settings className="w-4 h-4 text-app-subtext" />
             Setup Tables & Profile
           </button>
           <div className="h-px bg-app-border/40 my-1" />
           <button
-            onClick={() => handleAction(() => onDeleteClick(connection.id, connection.name))}
-            className="w-full px-4 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10 flex items-center gap-3 transition-colors"
-          >
+            onClick={() =>
+              handleAction(() => onDeleteClick(connection.id, connection.name))
+            }
+            className="w-full px-4 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10 flex items-center gap-3 transition-colors">
             <Trash2 className="w-4 h-4" />
             Delete Connection
           </button>
@@ -122,17 +128,16 @@ export function ConnectionMenu({
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className="p-2 text-app-subtext hover:text-app-text hover:bg-app-card rounded-lg transition-all"
-        title="More options"
-      >
+        title="More options">
         <MoreVertical className="w-4 h-4" />
       </button>
 
-      {isOpen && dropdownContent && createPortal(
-        <AnimatePresence>
-          {dropdownContent}
-        </AnimatePresence>,
-        document.body
-      )}
+      {isOpen &&
+        dropdownContent &&
+        createPortal(
+          <AnimatePresence>{dropdownContent}</AnimatePresence>,
+          document.body,
+        )}
     </div>
   );
 }

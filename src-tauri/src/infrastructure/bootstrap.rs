@@ -13,6 +13,7 @@ use crate::application::use_cases::db_connection_manager::DbConnectionManager;
 use crate::application::use_cases::embedding_service::EmbeddingService;
 use crate::application::use_cases::qa_ai::QaAiUseCase;
 use crate::application::use_cases::rate_limiter::RateLimiter;
+use crate::application::use_cases::reranker_service::RerankerService;
 use crate::application::use_cases::retrieval_service::RetrievalService;
 use crate::application::use_cases::rag_analytics::SharedAnalyticsLogger;
 use crate::application::use_cases::rag_config::{SharedConfigManager, SharedFeedbackCollector};
@@ -314,7 +315,8 @@ fn bootstrap_databases_and_state(
         let db_connection_manager = Arc::new(DbConnectionManager::new());
         let audit_service = Arc::new(AuditService::new(rag_pool.clone()));
         let rate_limiter = Arc::new(RateLimiter::new(rag_pool.clone()));
-        let data_protection = Arc::new(DataProtectionService::new(rag_pool));
+        let data_protection = Arc::new(DataProtectionService::new(rag_pool.clone()));
+        let reranker_service = Arc::new(RerankerService::default());
 
         let state = AppState {
             translate_use_case,
@@ -351,6 +353,7 @@ fn bootstrap_databases_and_state(
             audit_service,
             rate_limiter,
             data_protection,
+            reranker_service,
         };
         let state_arc = Arc::new(state);
 

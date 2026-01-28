@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import {
+  AlertCircle,
   ArrowRight,
   ChevronDown,
   Database,
@@ -49,8 +50,6 @@ type Props = {
   availableTables: string[];
   selectedTables: string[];
   onChangeSelectedTables: (tables: string[]) => void;
-  defaultLimit: number;
-  onChangeDefaultLimit: (v: number) => void;
   isLoadingDbData: boolean;
   onOpenDbConnections: () => void;
 };
@@ -88,8 +87,6 @@ export function RagTabSidebar(props: Props) {
     availableTables,
     selectedTables,
     onChangeSelectedTables,
-    defaultLimit,
-    onChangeDefaultLimit,
     isLoadingDbData,
     onOpenDbConnections,
   } = props;
@@ -97,13 +94,13 @@ export function RagTabSidebar(props: Props) {
   const collectionKinds = useMemo<CollectionKindInfo[]>(
     () => [
       {
-        value: "files",
+        value: "Files",
         label: "Files",
         description: "Upload PDF, DOCX, CSV, TXT, or import from web",
         icon: <FileText className="w-5 h-5" />,
       },
       {
-        value: "db",
+        value: "Db",
         label: "Database",
         description: "Connect to external database (PostgreSQL/SQLite)",
         icon: <Database className="w-5 h-5" />,
@@ -165,7 +162,7 @@ export function RagTabSidebar(props: Props) {
               </div>
             </div>
 
-            {collectionKind === "db" && (
+            {collectionKind === "Db" && (
               <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
                 <Shield className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
                 <div className="text-xs text-yellow-600 dark:text-yellow-500">
@@ -203,7 +200,7 @@ export function RagTabSidebar(props: Props) {
               />
             </div>
 
-            {collectionKind === "db" && (
+            {collectionKind === "Db" && (
               <>
                 <div>
                   <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">
@@ -219,12 +216,25 @@ export function RagTabSidebar(props: Props) {
                         onChangeSelectedTables([]);
                       }}
                       className="w-full appearance-none bg-app-card border border-app-border text-app-text text-sm rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500/50 transition-colors cursor-pointer">
-                      {allowlistProfiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name} -{" "}
-                          {profile.description || "No description"}
-                        </option>
-                      ))}
+                      {allowlistProfiles.map((profile) => {
+                        // Count tables in this profile's rules
+                        const tableCount = (() => {
+                          try {
+                            const rules = JSON.parse(profile.rules_json);
+                            return Object.keys(rules.allowed_tables || {})
+                              .length;
+                          } catch {
+                            return 0;
+                          }
+                        })();
+
+                        return (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name} ({tableCount} tables) -{" "}
+                            {profile.description || "No description"}
+                          </option>
+                        );
+                      })}
                     </select>
                     <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-app-subtext pointer-events-none group-hover:text-emerald-500 transition-colors" />
                   </div>
@@ -232,6 +242,23 @@ export function RagTabSidebar(props: Props) {
                     Controls which tables, columns, and filters are allowed
                   </p>
                 </div>
+
+                {/* Warning: No tables in profile */}
+                {allowlistProfileId && availableTables.length === 0 && (
+                  <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                    <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                    <div className="text-xs text-amber-600 dark:text-amber-500">
+                      <strong>No tables configured</strong> for this profile. Go
+                      to{" "}
+                      <button
+                        onClick={onOpenDbConnections}
+                        className="underline hover:text-amber-500">
+                        Database Settings
+                      </button>{" "}
+                      to setup tables first.
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">
@@ -319,32 +346,6 @@ export function RagTabSidebar(props: Props) {
                     )}
                   </div>
                 )}
-
-                {dbConnId && (
-                  <div>
-                    <label className="text-[10px] text-app-subtext block mb-1 uppercase tracking-wider">
-                      Default Row Limit
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={200}
-                      value={defaultLimit}
-                      onChange={(e) =>
-                        onChangeDefaultLimit(
-                          Math.min(
-                            200,
-                            Math.max(1, parseInt(e.target.value) || 50),
-                          ),
-                        )
-                      }
-                      className="w-full bg-app-card border border-app-border rounded-md px-3 py-2 text-sm outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 transition-all"
-                    />
-                    <p className="text-[10px] text-app-text-muted mt-1">
-                      Maximum rows per query (max 200)
-                    </p>
-                  </div>
-                )}
               </>
             )}
 
@@ -354,7 +355,7 @@ export function RagTabSidebar(props: Props) {
                 disabled={
                   isCreatingCollection ||
                   !newCollectionName.trim() ||
-                  (collectionKind === "db" &&
+                  (collectionKind === "Db" &&
                     (!dbConnId || selectedTables.length === 0))
                 }
                 className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-app-accent text-white rounded-md text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">
@@ -363,7 +364,7 @@ export function RagTabSidebar(props: Props) {
                 ) : (
                   <ArrowRight className="w-4 h-4" />
                 )}
-                Create {collectionKind === "db" ? "DB " : ""}Collection
+                Create {collectionKind === "Db" ? "DB " : ""}Collection
               </button>
               <button
                 onClick={onCancelCreate}
@@ -398,11 +399,11 @@ export function RagTabSidebar(props: Props) {
                     </span>
                     <span
                       className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
-                        collection.kind === "db"
-                          ? "bg-purple-500/10 text-purple-500"
-                          : "bg-blue-500/10 text-blue-500"
+                        collection.kind === "Db"
+                          ? "bg-app-accent/10 text-app-accent"
+                          : "bg-app-card border border-app-border/40 text-app-subtext"
                       }`}>
-                      {collection.kind === "db" ? "DB" : "Files"}
+                      {collection.kind === "Db" ? "DB" : "Files"}
                     </span>
                   </div>
                   {collection.description && (

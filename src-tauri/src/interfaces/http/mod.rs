@@ -368,8 +368,8 @@ fn inject_recorder_script(html: &str, base_url: &str) -> String {
 
     // Inject recorder script and base tag with CSP bypass
     let injection = format!(
-        r#"<base href="{}">
-<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+        r#"<base href=\"{}\">
+<meta http-equiv=\"Content-Security-Policy\" content=\"default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;\">
 <script>
 // QA Recorder Injectable Script - Injected by Proxy
 (function() {{
@@ -402,7 +402,7 @@ fn inject_recorder_script(html: &str, base_url: &str) -> String {
       const value = element.getAttribute(attr);
       if (!value) continue;
       if (attr === 'id') return `#${{CSS.escape(value)}}`;
-      return `${{element.tagName.toLowerCase()}}[${{attr}}="${{CSS.escape(value)}}"]`;
+      return `${{element.tagName.toLowerCase()}}[${{attr}}=\"${{CSS.escape(value)}}\"]`;
     }}
     const path = [];
     let current = element;
@@ -640,15 +640,15 @@ fn inject_recorder_script(html: &str, base_url: &str) -> String {
     clone.querySelectorAll('style').forEach((style) => {{
       if (!style.textContent) return;
       let text = style.textContent;
-      text = text.replace(/@font-face\\s*\\{{[\\s\\S]*?\\}}/g, '');
-      text = text.replace(/url\\(([^)]+)\\)/g, 'none');
+      text = text.replace(/@font-face\s*\{{[\s\S]*?\}}/g, '');
+      text = text.replace(/url\(([^)]+)\)/g, 'none');
       style.textContent = text;
     }});
 
     clone.querySelectorAll('[style]').forEach((el) => {{
       const inline = el.getAttribute('style');
       if (!inline || !inline.includes('url(')) return;
-      const cleaned = inline.replace(/url\\(([^)]+)\\)/g, 'none');
+      const cleaned = inline.replace(/url\(([^)]+)\)/g, 'none');
       el.setAttribute('style', cleaned);
     }});
 
@@ -659,8 +659,8 @@ fn inject_recorder_script(html: &str, base_url: &str) -> String {
     const safeWidth = Math.max(1, Math.floor(window.innerWidth));
     const safeHeight = Math.max(1, Math.floor(window.innerHeight));
     const serialized = new XMLSerializer().serializeToString(root);
-    const wrapped = `<div xmlns="http://www.w3.org/1999/xhtml">${{serialized}}</div>`;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${{safeWidth}}" height="${{safeHeight}}"><foreignObject width="100%" height="100%">${{wrapped}}</foreignObject></svg>`;
+    const wrapped = `<div xmlns=\"http://www.w3.org/1999/xhtml\">${{serialized}}</div>`;
+    const svg = `<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${{safeWidth}}\" height=\"${{safeHeight}}\"><foreignObject width=\"100%\" height=\"100%\">${{wrapped}}</foreignObject></svg>`;
     const blob = new Blob([svg], {{ type: 'image/svg+xml;charset=utf-8' }});
     const url = URL.createObjectURL(blob);
 

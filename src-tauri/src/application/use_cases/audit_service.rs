@@ -26,8 +26,9 @@ pub struct AuditLogEntry {
     pub latency_ms: i64,
     pub llm_route: String,
     pub sent_context_chars: i32,
-    pub selected_tables: Option<String>,
-    pub table_selection_blocked: bool,
+    pub template_id: Option<i64>,
+    pub template_name: Option<String>,
+    pub template_match_count: Option<i32>,
 }
 
 /// Audit log entry as stored in database (with created_at)
@@ -44,8 +45,9 @@ pub struct AuditLogRecord {
     pub latency_ms: i64,
     pub llm_route: Option<String>,
     pub sent_context_chars: i32,
-    pub selected_tables: Option<String>,
-    pub table_selection_blocked: bool,
+    pub template_id: Option<i64>,
+    pub template_name: Option<String>,
+    pub template_match_count: Option<i32>,
     pub created_at: String,
 }
 
@@ -87,10 +89,11 @@ impl AuditService {
                 latency_ms,
                 llm_route,
                 sent_context_chars,
-                selected_tables,
-                table_selection_blocked,
+                template_id,
+                template_name,
+                template_match_count,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(entry.collection_id)
@@ -103,8 +106,9 @@ impl AuditService {
         .bind(entry.latency_ms)
         .bind(&entry.llm_route)
         .bind(entry.sent_context_chars)
-        .bind(&entry.selected_tables)
-        .bind(entry.table_selection_blocked)
+        .bind(entry.template_id)
+        .bind(&entry.template_name)
+        .bind(entry.template_match_count)
         .execute(self.db_pool.as_ref())
         .await;
 
@@ -145,8 +149,9 @@ impl AuditService {
                 i64,
                 Option<String>,
                 i32,
+                Option<i64>,
                 Option<String>,
-                bool,
+                Option<i32>,
                 String,
             ),
         >(
@@ -154,7 +159,7 @@ impl AuditService {
             SELECT
                 id, collection_id, user_query_hash, intent, plan_json, compiled_sql,
                 params_json, row_count, latency_ms, llm_route, sent_context_chars,
-                selected_tables, table_selection_blocked, created_at
+                template_id, template_name, template_match_count, created_at
             FROM db_query_audit
             WHERE collection_id = ?
             ORDER BY created_at DESC
@@ -182,8 +187,9 @@ impl AuditService {
                     latency_ms,
                     llm_route,
                     sent_context_chars,
-                    selected_tables,
-                    table_selection_blocked,
+                    template_id,
+                    template_name,
+                    template_match_count,
                     created_at,
                 )| {
                     AuditLogRecord {
@@ -198,8 +204,9 @@ impl AuditService {
                         latency_ms,
                         llm_route,
                         sent_context_chars,
-                        selected_tables,
-                        table_selection_blocked,
+                        template_id,
+                        template_name,
+                        template_match_count,
                         created_at,
                     }
                 },

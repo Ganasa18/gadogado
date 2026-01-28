@@ -318,6 +318,223 @@ Now provide your answer, citing sources for every factual claim:"#,
 
         Ok(prompt)
     }
+
+    // ============================================================
+    // CONVERSATIONAL RESPONSE GENERATION
+    // ============================================================
+
+    /// Build a conversational prompt for natural language responses
+    pub fn build_conversational_nl_prompt(
+        query: &str,
+        results: &[QueryResult],
+        language: Option<&str>,
+    ) -> Result<String> {
+        let response_lang_instruction = match language {
+            Some("id") | Some("indonesia") | Some("indonesian") => {
+                r#"IMPORTANT - Respond in INDONESIAN with a casual, conversational tone:
+- Write as if you're chatting with a friend, NOT writing a formal report
+- Use casual language like "aku nemu", "gue dapet", "kayak gini", "nih"
+- Avoid formal words like "berdasarkan", "tersedia", "mengindikasikan"
+- Keep it friendly and natural
+
+Examples:
+- "Based on the documents, I found 3 results" → "Oke, aku nemu 3 hasil yang cocok nih"
+- "No results found" → "Hmm, gak ada yang cocok nih. Mungkin coba kata kunci lain?"
+- "Here is the information" → "Nih, infonya aku udah kumpulin"#
+            }
+            _ => {
+                r#"IMPORTANT - Use a casual, conversational tone:
+- Write as if you're chatting with a friend, NOT writing a formal report
+- Use casual language like "I found", "Here's what I got", "like this"
+- Avoid overly formal words
+- Keep it friendly and natural
+
+Examples:
+- "Based on the documents, I found 3 results" → "Okay, I found 3 results for you"
+- "No results found" → "Hmm, couldn't find anything. Maybe try different keywords?"
+- "Here is the information" → "Here's what I found for you"#
+            }
+        };
+
+        let context = Self::build_context(results);
+
+        let prompt = format!(
+            r#"You are a friendly and helpful document search assistant with a casual, conversational tone.
+
+{}
+
+CONTEXT RULES:
+1. Use ONLY the information provided in the context below
+2. Do NOT fabricate or make up any information
+3. Cite sources using [Source: type_id] format so users can verify
+
+{}
+
+User Question: {}
+
+Provide a conversational, helpful response:"#,
+            response_lang_instruction,
+            if results.is_empty() {
+                "No relevant documents found.".to_string()
+            } else {
+                format!("CONTEXT:\n{}", context)
+            },
+            query.trim()
+        );
+
+        Ok(prompt)
+    }
+
+    /// Build a conversational prompt with few-shot examples
+    pub fn build_conversational_nl_prompt_with_few_shot(
+        query: &str,
+        results: &[QueryResult],
+        language: Option<&str>,
+    ) -> Result<String> {
+        let response_lang_instruction = match language {
+            Some("id") | Some("indonesia") | Some("indonesian") => {
+                r#"IMPORTANT - Respond in INDONESIAN with a casual, conversational tone:
+- Write as if you're chatting with a friend, NOT writing a formal report
+- Use casual language like "aku nemu", "gue dapet", "kayak gini", "nih"
+- Avoid formal words like "berdasarkan", "tersedia", "mengindikasikan"
+- Keep it friendly and natural
+
+Examples:
+- "Based on the documents, I found 3 results" → "Oke, aku nemu 3 hasil yang cocok nih"
+- "No results found" → "Hmm, gak ada yang cocok nih. Mungkin coba kata kunci lain?"#
+            }
+            _ => {
+                r#"IMPORTANT - Use a casual, conversational tone:
+- Write as if you're chatting with a friend, NOT writing a formal report
+- Use casual language like "I found", "Here's what I got", "like this"
+- Avoid overly formal words
+- Keep it friendly and natural
+
+Examples:
+- "Based on the documents, I found 3 results" → "Okay, I found 3 results for you"
+- "No results found" → "Hmm, couldn't find anything. Maybe try different keywords?"#
+            }
+        };
+
+        let few_shot_examples = r#"
+
+EXAMPLE RESPONSES (follow this style):
+
+Example 1 - When finding information:
+"Oke, aku nemu beberapa info yang kamu cari. Jadi di [Source: text_chunk_123] disebutin bahwa...
+
+Nah, dari dokumen yang ada, poin-poin pentingnya:
+1. ... [Source: excel_data_456]
+2. ...
+
+Kira-kira gitu infonya, ada yang mau ditanyain lagi?"
+
+Example 2 - When nothing found:
+"Hmm, gak ada yang cocok nih. Mungkin coba kata kunci lain atau lebih spesifik?"
+
+Example 3 - When answering specific questions:
+"Jadi gini, menurut [Source: text_chunk_789] ..."#;
+
+        let context = Self::build_context(results);
+
+        let prompt = format!(
+            r#"You are a friendly and helpful document search assistant with a casual, conversational tone.
+
+{}{}
+
+CONTEXT RULES:
+1. Use ONLY the information provided in the context below
+2. Do NOT fabricate or make up any information
+3. Cite sources using [Source: type_id] format so users can verify
+
+{}
+
+User Question: {}
+
+Provide a conversational, helpful response following the example style above:"#,
+            response_lang_instruction,
+            few_shot_examples,
+            if results.is_empty() {
+                "No relevant documents found.".to_string()
+            } else {
+                format!("CONTEXT:\n{}", context)
+            },
+            query.trim()
+        );
+
+        Ok(prompt)
+    }
+
+    /// Build a conversational prompt with chat history
+    pub fn build_conversational_prompt_with_chat(
+        query: &str,
+        results: &[QueryResult],
+        conversation_summary: Option<&str>,
+        recent_messages: &[(String, String)],
+        language: Option<&str>,
+    ) -> Result<String> {
+        let mut prompt = String::new();
+
+        // Add conversation context
+        if let Some(summary) = conversation_summary {
+            prompt.push_str("Previous conversation summary:\n");
+            prompt.push_str(summary);
+            prompt.push_str("\n\n");
+        }
+
+        if !recent_messages.is_empty() {
+            prompt.push_str("Recent conversation:\n");
+            for (role, content) in recent_messages {
+                prompt.push_str(&format!("{}: {}\n", role, content));
+            }
+            prompt.push_str("\n");
+        }
+
+        // Add conversational system rules
+        let conversational_rules = match language {
+            Some("id") | Some("indonesia") | Some("indonesian") => {
+                r#"Kamu adalah asisten pencarian dokumen yang ramah dengan gaya bicara santai.
+
+ATURAN PENTING:
+1. Gunakan HANYA informasi dari konteks yang disediakan
+2. JANGAN mengarang atau membuat informasi
+3. JANGAN mencantumkan sumber yang tidak ada di konteks
+4. Saat menjawab, cantumkan sumber setiap informasi menggunakan format [Source: type_id]
+5. Jika konteks tidak punya cukup info, katakan dengan jujur
+6. Gunakan bahasa SANTAI seperti ngobrol sama teman
+   - "Berdasarkan dokumen" → "Oke, aku nemu..."
+   - "Tidak ditemukan" → "Hmm, gak ada yang cocok nih"
+   - "Berikut informasinya" → "Nih, infonya...""#
+            }
+            _ => {
+                r#"You are a friendly document search assistant with a casual, conversational tone.
+
+IMPORTANT RULES:
+1. Use ONLY the information provided in the context below
+2. Do NOT fabricate or make up any information
+3. Do NOT cite sources that are not in the context
+4. When answering, cite the source of each piece of information using [Source: type_id] format
+5. If the context doesn't contain enough information to answer the question, say so clearly
+6. Use CASUAL language like you're chatting with a friend
+   - "Based on the documents" → "Okay, I found..."
+   - "No results found" → "Hmm, couldn't find anything"
+   - "Here is the information" → "Here's what I got"#
+            }
+        };
+
+        prompt.push_str(conversational_rules);
+        prompt.push_str("\n\n");
+        prompt.push_str(&Self::build_context(results));
+        prompt.push_str("\n\n");
+
+        // Add current query
+        prompt.push_str(&format!(
+            "Current Question: {}\n\nAnswer based on the context and conversation history. Use a casual, conversational tone. Cite sources.",
+            query.trim()
+        ));
+
+        Ok(prompt)
+    }
 }
 
 // ============================================================

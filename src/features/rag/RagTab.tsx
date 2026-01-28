@@ -44,8 +44,6 @@ export default function RagTab() {
         availableTables={c.availableTables}
         selectedTables={c.selectedTables}
         onChangeSelectedTables={c.setSelectedTables}
-        defaultLimit={c.defaultLimit}
-        onChangeDefaultLimit={c.setDefaultLimit}
         isLoadingDbData={c.isLoadingDbData}
         onOpenDbConnections={c.gotoDbConnections}
       />
@@ -84,7 +82,7 @@ export default function RagTab() {
 
         <div
           className="flex-1 overflow-y-auto p-6 space-y-6"
-          {...(c.selectedCollection?.kind !== "db" && {
+          {...(c.selectedCollection?.kind !== "Db" && {
             onDragOver: c.handleDragOver,
             onDrop: c.handleDrop,
           })}>
@@ -100,8 +98,8 @@ export default function RagTab() {
             </AnimatedContainer>
           ) : (
             <>
-              {c.selectedCollection?.kind === "db" ? <RagTabDbCollectionInfo tables={c.collectionTables} /> : null}
-              {c.selectedCollection?.kind !== "db" ? (
+              {c.selectedCollection?.kind === "Db" ? <RagTabDbCollectionInfo tables={c.collectionTables} config={c.collectionConfig} /> : null}
+              {c.selectedCollection?.kind !== "Db" ? (
                 <RagTabDocumentsGrid documents={c.documents} onDeleteDocument={c.handleDeleteDocument} />
               ) : null}
             </>

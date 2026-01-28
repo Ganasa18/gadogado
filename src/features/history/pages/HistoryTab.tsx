@@ -2,13 +2,13 @@ import { useHistoryStore } from "../../../store/history";
 import { Button } from "../../../shared/components/Button";
 import {
   Languages,
-  Sparkles,
   Trash2,
   Clock,
   ArrowRight,
   Search,
   ArrowLeft,
   Code2,
+  History,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Input } from "../../../shared/components/Input";
@@ -82,7 +82,7 @@ export default function HistoryTab() {
               {selectedItem.type === "translation" ? (
                 <Languages className="w-3 h-3" />
               ) : selectedItem.type === "enhancement" ? (
-                <Sparkles className="w-3 h-3" />
+                <History className="w-3 h-3" />
               ) : (
                 <Code2 className="w-3 h-3" />
               )}
@@ -215,7 +215,7 @@ export default function HistoryTab() {
                     {item.type === "translation" ? (
                       <Languages className="w-3 h-3" />
                     ) : item.type === "enhancement" ? (
-                      <Sparkles className="w-3 h-3" />
+                      <History className="w-3 h-3" />
                     ) : (
                       <Code2 className="w-3 h-3" />
                     )}

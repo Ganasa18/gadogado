@@ -5,8 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
   Info,
-  Shield,
-  Settings,
   Trash2,
   CheckCircle2,
   AlertCircle,
@@ -19,13 +17,15 @@ import type {
 
 // Import extracted components
 import { DbConnectionForm } from "../components/DbConnectionForm";
+import { DbConnectionConfigModal } from "../components/DbConnectionConfigModal";
 import { ConnectionTable } from "../components/ConnectionTable";
 import { EmptyState } from "../components/EmptyState";
-import { InfoCard } from "../components/InfoCard";
 
 export default function DatabaseTab() {
   const [connections, setConnections] = useState<DbConnection[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [selectedConnection, setSelectedConnection] = useState<DbConnection | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -111,6 +111,11 @@ export default function DatabaseTab() {
 
   const handleManageTables = (connection: DbConnection) => {
     navigate(`/database/setup/${connection.id}`);
+  };
+
+  const handleEditConfig = (connection: DbConnection) => {
+    setSelectedConnection(connection);
+    setShowConfigModal(true);
   };
 
   if (loading) {
@@ -218,12 +223,13 @@ export default function DatabaseTab() {
             onDeleteClick={handleDeleteClick}
             onConfigureProfile={handleConfigureProfile}
             onManageTables={handleManageTables}
+            onEditConfig={handleEditConfig}
           />
         )}
       </div>
 
       {/* Policy and Config cards at bottom */}
-      <div className="grid grid-cols-2 gap-6 pt-4">
+      {/* <div className="grid grid-cols-2 gap-6 pt-4">
         <InfoCard
           icon={Shield}
           title="Security Policy"
@@ -234,7 +240,7 @@ export default function DatabaseTab() {
           title="RAG Configuration"
           description="Indexing frequency set to 15-minute intervals for active connectors. Vector embeddings are cached for 24 hours."
         />
-      </div>
+      </div> */}
 
       {/* Modal Form */}
       <AnimatePresence>
@@ -244,6 +250,19 @@ export default function DatabaseTab() {
             onSave={() => {
               setShowForm(false);
               loadConnections();
+            }}
+          />
+        )}
+        {showConfigModal && selectedConnection && (
+          <DbConnectionConfigModal
+            connection={selectedConnection}
+            onClose={() => {
+              setShowConfigModal(false);
+              setSelectedConnection(null);
+            }}
+            onSave={() => {
+              setShowConfigModal(false);
+              setSelectedConnection(null);
             }}
           />
         )}

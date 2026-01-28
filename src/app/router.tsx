@@ -31,6 +31,7 @@ import {
   ExportTab,
 } from "../features/model-distillation";
 import TableSetupPage from "../features/settings/pages/TableSetupPage";
+import RagSettingsTab from "../features/settings/pages/RagSettingsTab";
 
 export const router = createBrowserRouter([
   {
@@ -89,6 +90,10 @@ export const router = createBrowserRouter([
       {
         path: "rag/analytics",
         element: <RagAnalytics />,
+      },
+      {
+        path: "rag/settings",
+        element: <RagSettingsTab />,
       },
       {
         path: "token",

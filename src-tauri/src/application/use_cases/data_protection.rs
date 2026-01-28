@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_row_redaction() {
-        let mut row = QueryRow {
+        let row = QueryRow {
             table_name: "users".to_string(),
             columns: {
                 let mut m = HashMap::new();

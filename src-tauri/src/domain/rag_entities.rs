@@ -238,6 +238,41 @@ pub struct DbAllowlistProfile {
     pub created_at: DateTime<Utc>,
 }
 
+/// Query template for few-shot learning (Feature 31)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryTemplate {
+    pub id: i64,
+    pub allowlist_profile_id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub intent_keywords: Vec<String>,       // Parsed from JSON
+    pub example_question: String,
+    pub query_pattern: String,
+    pub pattern_type: String,               // 'select_where_in' | 'select_where_eq' | 'select_with_join' | 'aggregate' | 'custom'
+    pub tables_used: Vec<String>,           // Parsed from JSON
+    pub priority: i32,
+    pub is_enabled: bool,
+    pub is_pattern_agnostic: bool,          // true = pattern works across any table (abstract SQL pattern), false = table-specific
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Input for creating/updating query templates
+#[derive(Debug, Deserialize)]
+pub struct QueryTemplateInput {
+    pub allowlist_profile_id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub intent_keywords: Vec<String>,
+    pub example_question: String,
+    pub query_pattern: String,
+    pub pattern_type: String,
+    pub tables_used: Vec<String>,
+    pub priority: Option<i32>,
+    pub is_enabled: Option<bool>,
+    pub is_pattern_agnostic: Option<bool>,  // Optional in input, defaults to false
+}
+
 /// Information about a database table
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TableInfo {
@@ -292,11 +327,21 @@ pub struct OrderBy {
     pub direction: String, // asc | desc
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Join {
     pub table: String,
     pub on_column: String,
     pub join_type: String, // inner | left
+}
+
+/// Dynamic configuration stored in DbConnection.config_json
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DbConnectionConfig {
+    pub profile_id: Option<i64>,
+    pub selected_tables: Vec<String>,
+    pub selected_columns: std::collections::HashMap<String, Vec<String>>,
+    pub default_limit: Option<i32>,
+    pub updated_at: Option<String>,
 }
 
 /// SQL-RAG response

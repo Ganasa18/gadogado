@@ -1,7 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createConversation, addConversationMessage, listConversations, getConversationMessages, deleteConversation as deleteConversationApi } from "../api";
+import { getRagGlobalSettings } from "../api/contextSettings";
 import type { ChatMessage } from "../types";
 import type { Conversation, ConversationMessage } from "../api";
+import type { RagContextSettings } from "../../../store/settings";
 
 import type { LlmConfig, LlmResponse } from "../../../shared/api/apiClient";
 import type { LlmConfigOverrides } from "../../../shared/api/llmConfig";
@@ -19,6 +21,18 @@ type EnhanceAsync = (payload: {
 const DEFAULT_MAX_TOKENS = 2000;
 const DEFAULT_TEMPERATURE = 0.7;
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant. Answer the user's question clearly and concisely.";
+
+// Default settings fallback
+const DEFAULT_RAG_SETTINGS: RagContextSettings = {
+  maxContextTokens: 8000,
+  maxHistoryMessages: 10,
+  enableCompaction: true,
+  compactionStrategy: "adaptive",
+  summaryThreshold: 5,
+  reservedForResponse: 2048,
+  smallModelThreshold: 8000,
+  largeModelThreshold: 32000,
+};
 
 // ============================================================================
 // Helper Functions
@@ -77,6 +91,17 @@ export function useFreeChat(input: {
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [ragSettings, setRagSettings] = useState<RagContextSettings>(DEFAULT_RAG_SETTINGS);
+
+  // Load global RAG settings
+  const loadRagSettings = useCallback(async () => {
+    try {
+      const settings = await getRagGlobalSettings();
+      setRagSettings(settings);
+    } catch (err) {
+      console.error("Failed to load RAG settings, using defaults:", err);
+    }
+  }, []);
 
   // Load free chat conversations (collection_id = null)
   const refreshConversations = useCallback(async () => {
@@ -93,6 +118,12 @@ export function useFreeChat(input: {
       setIsLoadingHistory(false);
     }
   }, [chatMode]);
+
+  // Load conversations and settings on mount when in free chat mode
+  useEffect(() => {
+    void refreshConversations();
+    void loadRagSettings();
+  }, [refreshConversations, loadRagSettings]);
 
   // Load conversation messages
   const loadConversation = useCallback(async (conversationId: number) => {
@@ -139,6 +170,28 @@ export function useFreeChat(input: {
     }
   }, [currentConversationId, refreshConversations]);
 
+  // Build conversation history for LLM context using global RAG settings
+  const buildConversationContext = useCallback((currentMessages: ChatMessage[], currentQuery: string): string => {
+    // Use maxHistoryMessages from global RAG settings (multiply by 2 for user+assistant pairs)
+    const maxHistory = ragSettings.maxHistoryMessages * 2;
+    const recentMessages = currentMessages.slice(-maxHistory);
+
+    if (recentMessages.length === 0) {
+      return currentQuery;
+    }
+
+    // Format conversation history
+    const historyLines = recentMessages.map((msg) => {
+      const role = msg.type === "user" ? "User" : msg.type === "assistant" ? "Assistant" : "System";
+      return `${role}: ${msg.content}`;
+    });
+
+    // Add current query
+    historyLines.push(`User: ${currentQuery}`);
+
+    return `Previous conversation:\n${historyLines.join("\n")}\n\nPlease respond to the user's latest message, taking into account the conversation context above.`;
+  }, [ragSettings.maxHistoryMessages]);
+
   // Send message
   const sendMessage = useCallback(
     async (rawQuery: string) => {
@@ -161,10 +214,13 @@ export function useFreeChat(input: {
       await addConversationMessage(convId, "user", query);
 
       try {
-        // Direct LLM call without RAG context
+        // Build conversation context with history
+        const contentWithHistory = buildConversationContext(messages, query);
+
+        // LLM call with conversation context
         const llmResponse = await enhanceAsync({
           config: buildConfig({ maxTokens: DEFAULT_MAX_TOKENS, temperature: DEFAULT_TEMPERATURE }),
-          content: query,
+          content: contentWithHistory,
           system_prompt: DEFAULT_SYSTEM_PROMPT,
         });
 
@@ -180,7 +236,7 @@ export function useFreeChat(input: {
         setIsLoading(false);
       }
     },
-    [currentConversationId, chatMode, enhanceAsync, buildConfig, refreshConversations],
+    [currentConversationId, chatMode, enhanceAsync, buildConfig, refreshConversations, messages, buildConversationContext],
   );
 
   return {

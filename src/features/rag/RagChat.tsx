@@ -1,10 +1,10 @@
 import { useCallback, useRef, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
 import { useEnhanceMutation } from "../../hooks/useLlmApi";
 import { RagChatComposer } from "./components/RagChatComposer";
 import { RagChatDbBanner } from "./components/RagChatDbBanner";
 import { RagChatMessages } from "./components/RagChatMessages";
 import { RagChatSidebar } from "./components/RagChatSidebar";
+import { RagChatHeader } from "./components/RagChatHeader";
 import { RagSessionConfigModal } from "./components/RagSessionConfigModal";
 import { useRagCollections } from "./hooks/useRagCollections";
 import { useRagConversations } from "./hooks/useRagConversations";
@@ -21,6 +21,7 @@ export default function RagChat() {
 
   const [sessionConfigOpen, setSessionConfigOpen] = useState(false);
   const [chatMode, setChatMode] = useState<ChatMode>("rag");
+  const [isBannerDismissed, setIsBannerDismissed] = useState(false);
 
   const {
     selectedCollectionId,
@@ -35,6 +36,8 @@ export default function RagChat() {
     setCandidateK,
     rerankK,
     setRerankK,
+    dbFinalK,
+    setDbFinalK,
   } = useRagPersistedSettings();
 
   const { collections } = useRagCollections();
@@ -68,7 +71,7 @@ export default function RagChat() {
   } = useRagConversations(selectedCollectionId);
 
   const { mutateAsync: enhanceAsync } = useEnhanceMutation();
-  const { isLoading, sendMessage } = useRagSend({
+  const { isLoading, sendMessage, regenerateWithTemplate } = useRagSend({
     selectedCollectionId,
     isDbCollection,
     answerLanguage,
@@ -76,9 +79,11 @@ export default function RagChat() {
     topK,
     candidateK,
     rerankK,
+    dbFinalK,
     isLocalProvider,
     localModels,
     model,
+    provider,
     enhanceAsync,
     buildConfig,
     ensureConversation,
@@ -115,7 +120,6 @@ export default function RagChat() {
     if (!confirm("Clear this conversation?")) return;
 
     if (chatMode === "free") {
-      // Clear free chat by starting a new conversation
       void freeChat.newConversation();
     } else {
       try {
@@ -126,26 +130,37 @@ export default function RagChat() {
     }
   }, [currentMessages.length, chatMode, freeChat, clearCurrentConversation]);
 
-  const handleNewConversation = useCallback(() => {
-    startNewConversation();
-  }, [startNewConversation]);
+  const handleNewSession = useCallback(() => {
+    if (chatMode === "free") {
+      void freeChat.newConversation();
+    } else {
+      startNewConversation();
+      setIsBannerDismissed(false); // Reset banner on new session
+    }
+  }, [chatMode, freeChat, startNewConversation]);
 
   const handleDeleteConversation = useCallback(
     async (conversationId: number) => {
       if (!confirm("Delete this conversation?")) return;
       try {
-        await deleteConversationById(conversationId);
+        // Route to the appropriate delete method based on chat mode
+        if (chatMode === "free") {
+          await freeChat.deleteConversation(conversationId);
+        } else {
+          await deleteConversationById(conversationId);
+        }
       } catch (err) {
         console.error("Failed to delete conversation:", err);
       }
     },
-    [deleteConversationById],
+    [chatMode, freeChat, deleteConversationById],
   );
 
   const handleSelectCollection = useCallback(
     (collectionId: number) => {
       setSelectedCollectionId(collectionId);
       startNewConversation();
+      setIsBannerDismissed(false); // Reset banner on collection change
     },
     [setSelectedCollectionId, startNewConversation],
   );
@@ -154,6 +169,13 @@ export default function RagChat() {
     setInput(query);
     inputRef.current?.focus();
   }, []);
+
+  const handleRegenerateWithTemplate = useCallback(
+    (query: string, templateId: number) => {
+      void regenerateWithTemplate(query, templateId).finally(() => inputRef.current?.focus());
+    },
+    [regenerateWithTemplate],
+  );
 
   // Free chat handlers
   const handleChangeChatMode = useCallback((mode: ChatMode) => {
@@ -175,7 +197,7 @@ export default function RagChat() {
   }, [freeChat]);
 
   return (
-    <div className="flex h-full bg-app-bg text-app-text overflow-hidden font-sans">
+    <div className="flex h-screen bg-app-bg text-app-text overflow-hidden font-sans select-none">
       <RagSessionConfigModal
         open={sessionConfigOpen}
         onClose={() => setSessionConfigOpen(false)}
@@ -194,6 +216,8 @@ export default function RagChat() {
         setCandidateK={setCandidateK}
         rerankK={rerankK}
         setRerankK={setRerankK}
+        dbFinalK={dbFinalK}
+        setDbFinalK={setDbFinalK}
       />
 
       <RagChatSidebar
@@ -214,59 +238,42 @@ export default function RagChat() {
         onNewFreeChat={handleNewFreeChat}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-gradient-to-br from-app-bg via-app-bg to-app-card/20 relative">
-        <div className="absolute top-0 left-0 w-full h-[150px] bg-gradient-to-b from-app-card/10 to-transparent pointer-events-none" />
+      <main className="flex-1 flex flex-col min-w-0 bg-app-bg relative">
+        <RagChatHeader
+          onClear={() => void handleClear()}
+          onNewSession={handleNewSession}
+          hasMessages={currentMessages.length > 0}
+        />
 
-        {(chatMode === "free" || selectedCollectionId) && (
-          <div className="absolute top-4 right-6 z-10 flex items-center gap-2">
-            {chatMode === "free" ? (
-              <button
-                onClick={handleNewFreeChat}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500 text-white rounded-full text-[10px] font-medium hover:brightness-110 transition-all shadow-md shadow-purple-500/20">
-                <Plus className="w-3 h-3" />
-                New Chat
-              </button>
-            ) : (
-              <button
-                onClick={handleNewConversation}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-app-accent text-white rounded-full text-[10px] font-medium hover:brightness-110 transition-all shadow-md shadow-app-accent/20">
-                <Plus className="w-3 h-3" />
-                New Chat
-              </button>
-            )}
-            <button
-              onClick={() => void handleClear()}
-              disabled={currentMessages.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-app-card/60 backdrop-blur-md border border-app-border/40 rounded-full text-[10px] font-medium text-app-text-muted hover:text-red-400 hover:border-red-400/30 transition-all disabled:opacity-0">
-              <Trash2 className="w-3 h-3" />
-              Clear
-            </button>
-          </div>
+        {chatMode !== "free" && !isBannerDismissed && (
+          <RagChatDbBanner
+            isDbCollection={isDbCollection}
+            selectedCollectionId={selectedCollectionId}
+            selectedTables={selectedTables}
+            onDismiss={() => setIsBannerDismissed(true)}
+          />
         )}
 
-        <RagChatDbBanner
-          isDbCollection={isDbCollection}
-          selectedCollectionId={selectedCollectionId}
-          selectedTables={selectedTables}
-        />
+        <div className="flex-1 flex flex-col min-h-0 relative">
+          <RagChatMessages
+            messages={currentMessages}
+            isLoadingHistory={currentIsLoadingHistory}
+            isLoading={currentIsLoading}
+            selectedCollectionId={selectedCollectionId}
+            onRegenerate={handleRegenerate}
+            onRegenerateWithTemplate={isDbCollection ? handleRegenerateWithTemplate : undefined}
+          />
 
-        <RagChatMessages
-          messages={currentMessages}
-          isLoadingHistory={currentIsLoadingHistory}
-          isLoading={currentIsLoading}
-          selectedCollectionId={selectedCollectionId}
-          onRegenerate={handleRegenerate}
-        />
-
-        <RagChatComposer
-          input={input}
-          setInput={setInput}
-          inputRef={inputRef}
-          selectedCollectionId={selectedCollectionId}
-          isLoading={currentIsLoading}
-          onSend={onSend}
-          chatMode={chatMode}
-        />
+          <RagChatComposer
+            input={input}
+            setInput={setInput}
+            inputRef={inputRef}
+            selectedCollectionId={selectedCollectionId}
+            isLoading={currentIsLoading}
+            onSend={onSend}
+            chatMode={chatMode}
+          />
+        </div>
       </main>
     </div>
   );

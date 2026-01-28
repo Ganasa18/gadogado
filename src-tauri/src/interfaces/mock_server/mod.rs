@@ -75,6 +75,21 @@ pub struct MockBodyMatch {
     pub form_data: Vec<FormDataItem>,
     #[serde(default)]
     pub form_urlencode: Vec<MockKeyValue>,
+    #[serde(default)]
+    pub validation_strategy: ValidationStrategy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidationStrategy {
+    Exact,
+    KeyOnly,
+}
+
+impl Default for ValidationStrategy {
+    fn default() -> Self {
+        ValidationStrategy::Exact
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -574,7 +589,62 @@ fn match_body(rule: &MockBodyMatch, body_text: &str) -> bool {
         BodyType::RawXml => {}
     }
 
+    if rule.validation_strategy == ValidationStrategy::KeyOnly {
+        return match_body_keys(rule, body_text);
+    }
+
     match_body_value(rule, body_text)
+}
+
+fn match_body_keys(rule: &MockBodyMatch, body_text: &str) -> bool {
+    match rule.body_type {
+        BodyType::FormUrlencode => {
+            let parsed = parse_form_body(body_text);
+            rule.form_urlencode.iter().filter(|r| r.enabled).all(|r| {
+                let key = r.key.trim().to_lowercase();
+                key.is_empty() || parsed.contains_key(&key)
+            })
+        }
+        BodyType::FormData => rule.form_data.iter().filter(|r| r.enabled).all(|r| {
+            let key = r.key.trim();
+            if key.is_empty() {
+                return true;
+            }
+            let name_token = format!("name=\"{}\"", key);
+            body_text.contains(&name_token)
+        }),
+        BodyType::RawJson => {
+            let rule_json = match parse_json_with_comments(&rule.value) {
+                Some(j) => j,
+                None => return true, // If rule is invalid JSON, just pass
+            };
+            let body_json = match parse_json_with_comments(body_text) {
+                Some(j) => j,
+                None => return false,
+            };
+            json_keys_match(&body_json, &rule_json)
+        }
+        BodyType::RawXml => {
+            // Basic XML key (tag) matching could be complex,
+            // for now just check if tag names exist in string
+            // as a simple fallback
+            true
+        }
+    }
+}
+
+fn json_keys_match(haystack: &JsonValue, needle: &JsonValue) -> bool {
+    match (haystack, needle) {
+        (JsonValue::Object(hay), JsonValue::Object(need)) => {
+            need.keys().all(|k| hay.contains_key(k))
+        }
+        (JsonValue::Array(hay), JsonValue::Array(need)) => {
+            // For arrays, we just check if they are both arrays for now
+            // Or we could check if items match keys
+            !hay.is_empty() || need.is_empty()
+        }
+        _ => true, // Fallback for primitive types
+    }
 }
 
 fn match_body_value(rule: &MockBodyMatch, body_text: &str) -> bool {
@@ -650,8 +720,20 @@ fn match_json_body(rule: &MockBodyMatch, body_text: &str) -> Option<bool> {
     let body_json = parse_json_with_comments(body_trim)?;
 
     let matched = match rule.mode {
-        MatchMode::Exact => body_json == rule_json,
-        MatchMode::Contains => json_contains(&body_json, &rule_json),
+        MatchMode::Exact => {
+            if rule.validation_strategy == ValidationStrategy::KeyOnly {
+                json_keys_match(&body_json, &rule_json)
+            } else {
+                body_json == rule_json
+            }
+        }
+        MatchMode::Contains => {
+            if rule.validation_strategy == ValidationStrategy::KeyOnly {
+                json_keys_match(&body_json, &rule_json)
+            } else {
+                json_contains(&body_json, &rule_json)
+            }
+        }
         MatchMode::Regex => false,
     };
 
@@ -733,11 +815,9 @@ fn strip_json_comments(input: &str) -> String {
 
 fn json_contains(haystack: &JsonValue, needle: &JsonValue) -> bool {
     match (haystack, needle) {
-        (JsonValue::Object(hay), JsonValue::Object(need)) => need.iter().all(|(k, v)| {
-            hay.get(k)
-                .map(|hv| json_contains(hv, v))
-                .unwrap_or(false)
-        }),
+        (JsonValue::Object(hay), JsonValue::Object(need)) => need
+            .iter()
+            .all(|(k, v)| hay.get(k).map(|hv| json_contains(hv, v)).unwrap_or(false)),
         (JsonValue::Array(hay), JsonValue::Array(need)) => {
             if need.is_empty() {
                 return true;

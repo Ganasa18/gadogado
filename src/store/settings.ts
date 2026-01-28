@@ -13,6 +13,40 @@ export type LLMProvider =
 
 export type EmbeddingProvider = "local";
 
+// RAG Context Settings Types
+export type CompactionStrategy = "adaptive" | "truncate" | "summarize" | "hybrid";
+
+export interface RagContextSettings {
+  maxContextTokens: number;
+  maxHistoryMessages: number;
+  enableCompaction: boolean;
+  compactionStrategy: CompactionStrategy;
+  summaryThreshold: number;
+  reservedForResponse: number;
+  smallModelThreshold: number;   // Below this = use efficient truncation
+  largeModelThreshold: number;   // Above this = use full summarization
+}
+
+export interface ModelContextLimit {
+  id?: number;
+  provider: string;
+  modelName: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+}
+
+// Default values based on typical local model (4K-8K context)
+export const DEFAULT_RAG_SETTINGS: RagContextSettings = {
+  maxContextTokens: 8000,
+  maxHistoryMessages: 10,
+  enableCompaction: true,
+  compactionStrategy: "adaptive",
+  summaryThreshold: 5,
+  reservedForResponse: 2048,
+  smallModelThreshold: 8000,   // Below 8K = small model
+  largeModelThreshold: 32000,  // Above 32K = large model
+};
+
 export interface PromptTemplate {
   id: string;
   name: string;

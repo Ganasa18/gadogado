@@ -20,7 +20,7 @@ export function RagTabHeader(props: Props) {
     onToggleWebImport,
   } = props;
 
-  const isDbCollection = selectedCollection?.kind === "db";
+  const isDbCollection = selectedCollection?.kind === "Db";
 
   return (
     <div className="p-6 border-b border-app-border flex flex-wrap items-center justify-between gap-4">
