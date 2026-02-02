@@ -6,11 +6,9 @@
 use std::path::Path;
 use std::time::Instant;
 
-use crate::domain::csv::{
-    ContentType, CsvRow, PreprocessingConfig, PreprocessedCsv,
-};
+use crate::domain::csv::{ContentType, CsvRow, PreprocessedCsv, PreprocessingConfig};
+use crate::domain::error::AppError;
 use crate::infrastructure::csv::{ContentAnalyzer, CsvParser};
-use crate::domain::error::{AppError};
 
 /// CSV preprocessing use case
 pub struct CsvPreprocessor {
@@ -38,9 +36,8 @@ impl CsvPreprocessor {
         })?;
 
         // Parse CSV file
-        let parser = CsvParser::parse_file_auto_detect(csv_path).map_err(|e| {
-            AppError::ParseError(format!("Failed to parse CSV file: {}", e))
-        })?;
+        let parser = CsvParser::parse_file_auto_detect(csv_path)
+            .map_err(|e| AppError::ParseError(format!("Failed to parse CSV file: {}", e)))?;
 
         // Check minimum row count
         if parser.len() < self.config.min_sample_rows {
@@ -96,7 +93,7 @@ impl CsvPreprocessor {
     fn format_structured(&self, rows: &[CsvRow]) -> String {
         rows.iter()
             .enumerate()
-            .map(|(idx, row)| {
+            .map(|(_idx, row)| {
                 let mut parts: Vec<String> = Vec::new();
                 let mut email_parts: Vec<String> = Vec::new();
 
@@ -131,17 +128,15 @@ impl CsvPreprocessor {
     }
 
     /// Process CSV from string content (for testing or in-memory data)
-    pub fn preprocess_csv_content(
-        &self,
-        content: &str,
-    ) -> Result<PreprocessedCsv, AppError> {
+    pub fn preprocess_csv_content(&self, content: &str) -> Result<PreprocessedCsv, AppError> {
         let start = Instant::now();
 
         // Parse CSV content
-        let parser = CsvParser::new();
-        let rows = parser.parse_content(content).map_err(|e| {
-            AppError::ParseError(format!("Failed to parse CSV content: {}", e))
-        })?;
+        let delimiter = CsvParser::detect_delimiter(content);
+        let parser = CsvParser::new().with_delimiter(delimiter);
+        let rows = parser
+            .parse_content(content)
+            .map_err(|e| AppError::ParseError(format!("Failed to parse CSV content: {}", e)))?;
 
         // Check minimum row count
         if rows.len() < self.config.min_sample_rows {
@@ -184,10 +179,11 @@ impl CsvPreprocessor {
 
     /// Get analysis report without full preprocessing
     pub fn analyze_csv(&self, content: &str) -> Result<String, AppError> {
-        let parser = CsvParser::new();
-        let rows = parser.parse_content(content).map_err(|e| {
-            AppError::ParseError(format!("Failed to parse CSV content: {}", e))
-        })?;
+        let delimiter = CsvParser::detect_delimiter(content);
+        let parser = CsvParser::new().with_delimiter(delimiter);
+        let rows = parser
+            .parse_content(content)
+            .map_err(|e| AppError::ParseError(format!("Failed to parse CSV content: {}", e)))?;
 
         let analyzer = ContentAnalyzer::new(self.config.clone());
         Ok(analyzer.get_analysis_report(&rows))
@@ -199,10 +195,11 @@ impl CsvPreprocessor {
         content: &str,
         preview_count: usize,
     ) -> Result<Vec<String>, AppError> {
-        let parser = CsvParser::new();
-        let rows = parser.parse_content(content).map_err(|e| {
-            AppError::ParseError(format!("Failed to parse CSV content: {}", e))
-        })?;
+        let delimiter = CsvParser::detect_delimiter(content);
+        let parser = CsvParser::new().with_delimiter(delimiter);
+        let rows = parser
+            .parse_content(content)
+            .map_err(|e| AppError::ParseError(format!("Failed to parse CSV content: {}", e)))?;
 
         let analyzer = ContentAnalyzer::new(self.config.clone());
         let content_type = analyzer.detect_content_type(&rows);
@@ -258,9 +255,7 @@ employee_id,first_name,last_name,department,salary
     #[test]
     fn test_detect_structured_csv() {
         let preprocessor = CsvPreprocessor::default();
-        let result = preprocessor
-            .preprocess_csv_content(STRUCTURED_CSV)
-            .unwrap();
+        let result = preprocessor.preprocess_csv_content(STRUCTURED_CSV).unwrap();
 
         assert_eq!(result.content_type, ContentType::Structured);
         assert!(result.processed_text.contains("## Record #"));
@@ -273,7 +268,9 @@ employee_id,first_name,last_name,department,salary
         let result = preprocessor.preprocess_csv_content(NARRATIVE_CSV).unwrap();
 
         // Check for narrative format elements
-        assert!(result.processed_text.contains("title: Machine Learning Basics"));
+        assert!(result
+            .processed_text
+            .contains("title: Machine Learning Basics"));
         assert!(result.processed_text.contains("---"));
         assert!(!result.processed_text.contains("## Record"));
         assert!(!result.processed_text.contains("|"));
@@ -282,9 +279,7 @@ employee_id,first_name,last_name,department,salary
     #[test]
     fn test_structured_formatting() {
         let preprocessor = CsvPreprocessor::default();
-        let result = preprocessor
-            .preprocess_csv_content(STRUCTURED_CSV)
-            .unwrap();
+        let result = preprocessor.preprocess_csv_content(STRUCTURED_CSV).unwrap();
 
         // Check for structured format elements
         assert!(result.processed_text.contains("## Record #1"));

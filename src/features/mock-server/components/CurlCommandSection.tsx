@@ -3,7 +3,7 @@
 // Displays generated cURL command with copy button
 // =============================================================================
 
-import { Copy } from "lucide-react";
+import { Copy, Check } from "lucide-react";
 import { Button } from "../../../shared/components/Button";
 import type { MockRoute } from "../types";
 
@@ -23,28 +23,47 @@ export function CurlCommandSection({
   onCopyToClipboard,
 }: CurlCommandSectionProps) {
   const curlCommand = generateCurlCommand(route, baseUrl);
+  const isCopied = lastCopied === "cURL";
 
   return (
-    <section className="pt-8 pb-10">
-      <div className="rounded-lg bg-app-panel border border-app-border p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h4 className="text-xs font-bold uppercase tracking-widest text-app-subtext">
-            Generate Request cURL
-          </h4>
+    <section className="space-y-8 animate-in fade-in slide-in-from-top-2 duration-500">
+      <div className="space-y-1">
+        <h3 className="text-xs font-bold text-app-text uppercase tracking-widest">
+          STEP 4: CURL GENERATOR
+        </h3>
+        <p className="text-[11px] text-app-subtext/60">Use this command to test your mock endpoint from a terminal.</p>
+      </div>
+
+      <div className="bg-app-card rounded-[24px] border border-app-border p-8 space-y-6 relative group overflow-hidden">
+        <div className="absolute top-0 right-0 p-8">
           <Button
             size="sm"
             variant="ghost"
             onClick={() => onCopyToClipboard("cURL", curlCommand)}
-            className="text-app-accent hover:bg-app-accent/10"
+            className={`h-10 rounded-xl px-6 transition-all font-bold text-xs gap-2 ${
+              isCopied 
+                ? "bg-app-success text-white shadow-md" 
+                : "bg-app-bg text-app-subtext hover:text-app-text border border-app-border"
+            }`}
           >
-            <Copy className="w-3.5 h-3.5 mr-2" />
-            {lastCopied === "cURL" ? "Copied!" : "Copy cURL"}
+            {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {isCopied ? "Copied!" : "Copy cURL"}
           </Button>
         </div>
-        <div className="bg-[#101010] p-3 rounded border border-app-border overflow-x-auto">
-          <pre className="text-[10px] font-mono text-app-text/70 whitespace-pre-wrap break-all">
-            {curlCommand}
-          </pre>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-orange-500" />
+            <span className="text-[10px] font-bold text-app-subtext uppercase tracking-widest">
+              Terminal Command
+            </span>
+          </div>
+
+          <div className="bg-app-bg p-6 rounded-2xl border border-app-border overflow-x-auto custom-scrollbar group-hover:border-app-subtext/20 transition-colors">
+            <pre className="text-xs font-mono text-app-accent/80 whitespace-pre-wrap break-all leading-relaxed">
+              {curlCommand}
+            </pre>
+          </div>
         </div>
       </div>
     </section>

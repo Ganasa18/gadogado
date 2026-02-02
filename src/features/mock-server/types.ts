@@ -16,6 +16,7 @@ export type MatchMode = (typeof MATCH_MODES)[number];
 export type ResponseBodyType = "none" | "form_data" | "form_urlencode" | "raw";
 export type RawSubType = "text" | "json" | "xml" | "html" | "javascript";
 export type BodyType = "raw_json" | "raw_xml" | "form_data" | "form_urlencode";
+export type ResponseStrategy = "single" | "multi";
 
 export interface MockKeyValue {
   key: string;
@@ -36,6 +37,7 @@ export interface MockBodyMatch {
   bodyType?: BodyType;
   formData?: FormDataItem[];
   formUrlencode?: MockKeyValue[];
+  validationStrategy?: 'exact' | 'key_only';
 }
 
 export interface MockRouteMatchers {
@@ -55,6 +57,15 @@ export interface MockResponse {
   delayMs?: number | null;
 }
 
+export type MultiResponseMatchMode = "exact" | "key_match";
+
+export interface PayloadResponseMapping {
+  id: string;
+  name: string;
+  payload: string;
+  response: MockResponse;
+}
+
 export interface MockRoute {
   id: string;
   name: string;
@@ -62,7 +73,10 @@ export interface MockRoute {
   method: HttpMethod;
   path: string;
   matchers: MockRouteMatchers;
+  responseStrategy?: ResponseStrategy;
+  multiResponseMatchMode?: MultiResponseMatchMode;
   response: MockResponse;
+  multiResponses?: PayloadResponseMapping[];
 }
 
 export interface MockServerConfig {
@@ -107,12 +121,35 @@ export const createRoute = (): MockRoute => ({
     headers: [],
     body: null,
   },
+  responseStrategy: "single",
   response: {
     status: 200,
     headers: [
       { key: "Content-Type", value: "application/json", enabled: true }
     ],
     body: "{\n  \"status\": \"success\",\n  \"data\": {\n    \"id\": \"123\",\n    \"message\": \"Hello World\"\n  }\n}",
+    bodyType: "raw",
+    rawSubType: "json",
+    formData: [],
+    formUrlencode: [],
+    delayMs: null,
+  },
+  multiResponses: [],
+});
+
+export const createPayloadResponseMapping = (): PayloadResponseMapping => ({
+  id:
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `mapping_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+  name: "New mapping",
+  payload: '{\n  "key": "value"\n}',
+  response: {
+    status: 200,
+    headers: [
+      { key: "Content-Type", value: "application/json", enabled: true }
+    ],
+    body: '{\n  "result": "matched"\n}',
     bodyType: "raw",
     rawSubType: "json",
     formData: [],
@@ -145,31 +182,37 @@ export const getPlaceholderForRawType = (subType?: RawSubType): string => {
   }
 };
 
-export const normalizeConfig = (config: MockServerConfig): MockServerConfig => ({
-  ...config,
-  routes: config.routes.map((route) => ({
-    ...route,
-    matchers: {
-      queryParams: route.matchers.queryParams ?? [],
-      headers: route.matchers.headers ?? [],
-      body: route.matchers.body ? {
-        ...route.matchers.body,
-        bodyType: route.matchers.body.bodyType ?? "raw_json",
-        formData: route.matchers.body.formData ?? [],
-        formUrlencode: route.matchers.body.formUrlencode ?? [],
-      } : null,
-    },
-    response: {
-      ...route.response,
-      headers: route.response.headers ?? [],
-      bodyType: route.response.bodyType ?? "raw",
-      rawSubType: route.response.rawSubType ?? "json",
-      formData: route.response.formData ?? [],
-      formUrlencode: route.response.formUrlencode ?? [],
-      delayMs: route.response.delayMs ?? null,
-    },
-  })),
-});
+export const normalizeConfig = (config: MockServerConfig): MockServerConfig => {
+  return {
+    ...config,
+    routes: config.routes.map((route) => ({
+      ...route,
+      responseStrategy: route.responseStrategy ?? "single",
+      multiResponseMatchMode: route.multiResponseMatchMode ?? "exact",
+      multiResponses: route.multiResponses ?? [],
+      matchers: {
+        queryParams: route.matchers.queryParams ?? [],
+        headers: route.matchers.headers ?? [],
+        body: route.matchers.body ? {
+          ...route.matchers.body,
+          bodyType: route.matchers.body.bodyType ?? "raw_json",
+          formData: route.matchers.body.formData ?? [],
+          formUrlencode: route.matchers.body.formUrlencode ?? [],
+          validationStrategy: route.matchers.body.validationStrategy ?? "exact",
+        } : null,
+      },
+      response: {
+        ...route.response,
+        headers: route.response.headers ?? [],
+        bodyType: route.response.bodyType ?? "raw",
+        rawSubType: route.response.rawSubType ?? "json",
+        formData: route.response.formData ?? [],
+        formUrlencode: route.response.formUrlencode ?? [],
+        delayMs: route.response.delayMs ?? null,
+      },
+    })),
+  };
+};
 
 export const serializeConfig = (config: MockServerConfig | null): string =>
   config ? JSON.stringify(normalizeConfig(config)) : "";

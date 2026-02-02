@@ -60,6 +60,14 @@ pub struct RetrievalConfig {
     /// Whether to enable LLM-based reranking
     pub reranking_enabled: bool,
 
+    /// Number of candidates to retrieve before reranking (QA mode).
+    #[serde(default = "default_candidate_k")]
+    pub candidate_k: usize,
+
+    /// Number of candidates to send to the local reranker (QA mode).
+    #[serde(default = "default_rerank_k")]
+    pub rerank_k: usize,
+
     /// Minimum relevance score threshold (0.0 - 1.0)
     pub min_relevance_score: f32,
 
@@ -175,10 +183,20 @@ impl Default for RetrievalConfig {
             vector_weight: 0.7,
             keyword_weight: 0.3,
             reranking_enabled: true,
+            candidate_k: default_candidate_k(),
+            rerank_k: default_rerank_k(),
             min_relevance_score: 0.1,
             query_expansion_enabled: true,
         }
     }
+}
+
+fn default_candidate_k() -> usize {
+    100
+}
+
+fn default_rerank_k() -> usize {
+    75
 }
 
 impl Default for EmbeddingConfig {

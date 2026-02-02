@@ -1,3 +1,4 @@
+pub mod context_config;
 pub mod error;
 pub mod llm_config;
 pub mod prompt;

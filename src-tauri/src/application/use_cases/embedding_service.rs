@@ -316,7 +316,9 @@ impl EmbeddingService {
         let config = self.config.lock().unwrap().clone();
         let embedding = match config.provider {
             LLMProvider::Local => self.generate_local_embedding(text, config).await,
-            LLMProvider::OpenAI => self.generate_openai_embedding(text, config).await,
+            LLMProvider::OpenAI | LLMProvider::OpenRouter => {
+                self.generate_openai_embedding(text, config).await
+            }
             LLMProvider::Gemini => self.generate_gemini_embedding(text, config).await,
             _ => self.generate_ollama_embedding(text, config).await,
         }?;
@@ -335,7 +337,9 @@ impl EmbeddingService {
         let config = self.config.lock().unwrap().clone();
         match config.provider {
             LLMProvider::Local => self.generate_local_embedding(text, config).await,
-            LLMProvider::OpenAI => self.generate_openai_embedding(text, config).await,
+            LLMProvider::OpenAI | LLMProvider::OpenRouter => {
+                self.generate_openai_embedding(text, config).await
+            }
             LLMProvider::Gemini => self.generate_gemini_embedding(text, config).await,
             _ => self.generate_ollama_embedding(text, config).await,
         }

@@ -8,12 +8,12 @@ import { isTauri } from "../utils/tauri";
 let lastSyncedSignature: string | null = null;
 
 export function useSyncConfig() {
-  const { provider, model, apiKey, baseUrl } = useSettingsStore(
+  const { provider, model, baseUrl, getApiKey } = useSettingsStore(
     useShallow((state) => ({
       provider: state.provider,
       model: state.model,
-      apiKey: state.apiKey,
       baseUrl: state.baseUrl,
+      getApiKey: state.getApiKey,
     }))
   );
   const [hydrated, setHydrated] = useState(
@@ -28,6 +28,7 @@ export function useSyncConfig() {
 
   useEffect(() => {
     if (!isTauri() || !hydrated) return;
+    const apiKey = getApiKey(provider);
     const signature = `${provider}|${model}|${apiKey}|${baseUrl}`;
     if (signature === lastSyncedSignature) return;
     lastSyncedSignature = signature;
@@ -36,5 +37,5 @@ export function useSyncConfig() {
       { maxTokens: 1024, temperature: 0.7 }
     );
     invoke("sync_config", { config }).catch(console.error);
-  }, [provider, model, apiKey, baseUrl, hydrated]);
+  }, [provider, model, baseUrl, getApiKey, hydrated]);
 }

@@ -195,7 +195,7 @@ export default function TranslateTab({
             <Select
               options={LANGUAGES}
               value={sourceLang}
-              onChange={setSourceLang}
+              onChange={(v) => setSourceLang(typeof v === "string" ? v : v[0])}
               className="w-40"
             />
             <Button
@@ -223,7 +223,7 @@ export default function TranslateTab({
             <Select
               options={LANGUAGES.filter((l) => l.value !== "Auto Detect")}
               value={targetLang}
-              onChange={setTargetLang}
+              onChange={(v) => setTargetLang(typeof v === "string" ? v : v[0])}
               className="w-40"
             />
             <Button

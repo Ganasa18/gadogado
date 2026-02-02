@@ -7,18 +7,20 @@ import {
 } from "../shared/api/llmConfig";
 
 export function useLlmConfigBuilder() {
-  const { provider, model, apiKey, baseUrl } = useSettingsStore(
+  const { provider, model, baseUrl, getApiKey } = useSettingsStore(
     useShallow((state) => ({
       provider: state.provider,
       model: state.model,
-      apiKey: state.apiKey,
       baseUrl: state.baseUrl,
+      getApiKey: state.getApiKey,
     }))
   );
 
   return useCallback(
-    (overrides?: LlmConfigOverrides) =>
-      createLlmConfig({ provider, model, apiKey, baseUrl }, overrides),
-    [provider, model, apiKey, baseUrl]
+    (overrides?: LlmConfigOverrides) => {
+      const apiKey = getApiKey(provider);
+      return createLlmConfig({ provider, model, apiKey, baseUrl }, overrides);
+    },
+    [provider, model, baseUrl, getApiKey]
   );
 }

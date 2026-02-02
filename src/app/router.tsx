@@ -23,12 +23,16 @@ import {
   SessionManagerTab,
 } from "../features/qa";
 import MenuManagementTab from "../features/settings/pages/MenuManagementTab";
+import DatabaseTab from "../features/settings/pages/DatabaseTab";
 import {
   SetupTab,
   TrainTab,
   EvaluateTab,
   ExportTab,
 } from "../features/model-distillation";
+import TableSetupPage from "../features/settings/pages/TableSetupPage";
+import RagSettingsTab from "../features/settings/pages/RagSettingsTab";
+import Base64ImageTab from "../features/base64-image";
 
 export const router = createBrowserRouter([
   {
@@ -89,6 +93,10 @@ export const router = createBrowserRouter([
         element: <RagAnalytics />,
       },
       {
+        path: "rag/settings",
+        element: <RagSettingsTab />,
+      },
+      {
         path: "token",
         element: <TokenTab />,
       },
@@ -109,12 +117,24 @@ export const router = createBrowserRouter([
         element: <MenuManagementTab />,
       },
       {
+        path: "database",
+        element: <DatabaseTab />,
+      },
+      {
+        path: "database/setup/:id",
+        element: <TableSetupPage />,
+      },
+      {
         path: "visualize-json",
         element: <VisualizeJsonPage />,
       },
       {
         path: "diff-checker",
         element: <DiffCheckerPage />,
+      },
+      {
+        path: "base64-image",
+        element: <Base64ImageTab />,
       },
       {
         path: "tutorial",

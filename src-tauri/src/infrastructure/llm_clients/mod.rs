@@ -1,12 +1,16 @@
+pub mod cli_proxy;
 pub mod gemini;
 pub mod openai;
+pub mod openrouter;
 
 use crate::domain::error::Result;
 use crate::domain::llm_config::LLMConfig;
 use crate::domain::llm_config::LLMProvider;
 use async_trait::async_trait;
+use cli_proxy::CliProxyClient;
 use gemini::GeminiClient;
 use openai::OpenAIClient;
+use openrouter::OpenRouterClient;
 
 #[async_trait]
 pub trait LLMClient {
@@ -17,6 +21,8 @@ pub trait LLMClient {
 pub struct RouterClient {
     openai: OpenAIClient,
     gemini: GeminiClient,
+    openrouter: OpenRouterClient,
+    cli_proxy: CliProxyClient,
 }
 
 impl RouterClient {
@@ -24,6 +30,8 @@ impl RouterClient {
         Self {
             openai: OpenAIClient::new(),
             gemini: GeminiClient::new(),
+            openrouter: OpenRouterClient::new(),
+            cli_proxy: CliProxyClient::new(),
         }
     }
 }
@@ -32,14 +40,18 @@ impl RouterClient {
 impl LLMClient for RouterClient {
     async fn generate(&self, config: &LLMConfig, system: &str, user: &str) -> Result<String> {
         match config.provider {
+            LLMProvider::OpenRouter => self.openrouter.generate(config, system, user).await,
             LLMProvider::Gemini => self.gemini.generate(config, system, user).await,
+            LLMProvider::CliProxy => self.cli_proxy.generate(config, system, user).await,
             _ => self.openai.generate(config, system, user).await,
         }
     }
 
     async fn list_models(&self, config: &LLMConfig) -> Result<Vec<String>> {
         match config.provider {
+            LLMProvider::OpenRouter => self.openrouter.list_models(config).await,
             LLMProvider::Gemini => self.gemini.list_models(config).await,
+            LLMProvider::CliProxy => self.cli_proxy.list_models(config).await,
             _ => self.openai.list_models(config).await,
         }
     }

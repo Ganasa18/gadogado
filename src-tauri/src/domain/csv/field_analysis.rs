@@ -3,8 +3,8 @@
 // ============================================================
 // Statistical analysis of CSV fields for content type detection
 
-use serde::{Deserialize, Serialize};
 use super::PreprocessingConfig;
+use serde::{Deserialize, Serialize};
 
 /// Statistical analysis of CSV field content
 #[derive(Debug, Clone, Serialize, Deserialize)]

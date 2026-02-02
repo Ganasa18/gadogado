@@ -19,6 +19,8 @@ import {
   Download,
   LayoutDashboard,
   GitCompare,
+  DatabaseIcon,
+  Image as ImageIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -102,6 +104,12 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: Server,
         section: "Workspace",
       },
+      {
+        path: "/base64-image",
+        label: "Base64 Image",
+        icon: ImageIcon,
+        section: "Workspace",
+      },
     ],
   },
   {
@@ -123,6 +131,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: "/rag/analytics",
         label: "RAG Analytics",
         icon: BarChart3,
+        section: "Workspace",
+      },
+      {
+        path: "/rag/settings",
+        label: "RAG Settings",
+        icon: Settings,
         section: "Workspace",
       },
     ],
@@ -180,6 +194,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: "/general",
         label: "General",
         icon: Settings,
+        section: "Configuration",
+      },
+      {
+        path: "/database",
+        label: "Database Setup",
+        icon: DatabaseIcon,
         section: "Configuration",
       },
       {

@@ -111,6 +111,7 @@ export function useMockServerConfig(): UseMockServerConfigReturn {
                     bodyType: r.matchers.body.bodyType ?? "raw_json",
                     formData: r.matchers.body.formData ?? [],
                     formUrlencode: r.matchers.body.formUrlencode ?? [],
+                    validationStrategy: r.matchers.body.validationStrategy ?? "exact",
                   }
                 : null,
             },

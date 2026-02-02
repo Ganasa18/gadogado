@@ -79,6 +79,8 @@ export default function Layout() {
   const rawPath = location.pathname === "/" ? "/general" : location.pathname;
   const activePath = rawPath.startsWith("/qa/session/")
     ? "/qa/history"
+    : rawPath.startsWith("/database/setup/")
+    ? "/database"
     : rawPath;
 
   useEffect(() => {
@@ -213,12 +215,14 @@ export default function Layout() {
                     : provider === "ollama"
                       ? "Ollama"
                       : provider === "llama_cpp"
-                        ? "Llama.cpp"
+                      ? "Llama.cpp"
                         : provider === "openai"
                           ? "OpenAI"
                           : provider === "gemini"
                             ? "Gemini"
-                            : "DLL"}
+                            : provider === "openrouter"
+                              ? "OpenRouter"
+                              : "DLL"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-[10px]">

@@ -9,7 +9,7 @@ export function ToastContainer() {
     useState<HTMLElement | null>(
       typeof document !== "undefined"
         ? (document.fullscreenElement as HTMLElement | null)
-        : null
+        : null,
     );
 
   useEffect(() => {
@@ -17,7 +17,7 @@ export function ToastContainer() {
       setFullscreenElement(
         typeof document !== "undefined"
           ? (document.fullscreenElement as HTMLElement | null)
-          : null
+          : null,
       );
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -29,8 +29,8 @@ export function ToastContainer() {
   if (toasts.length === 0) return null;
 
   const positionClasses = fullscreenElement
-    ? "absolute bottom-4 right-4"
-    : "fixed bottom-4 right-4";
+    ? "absolute bottom-10 right-4"
+    : "fixed bottom-10 right-4";
 
   const content = (
     <div

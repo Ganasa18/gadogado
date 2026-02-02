@@ -5,7 +5,7 @@
 - Make the codebase easy to navigate as features grow
 - Separate concerns by layer and by feature
 - Keep shared code explicit and stable
-- On every backend request add logging to tracing error with function add_log() [don't log sensitive data]
+- On every backend request, add tracing/error logging via `add_log()` (never log sensitive data)
 
 repo/
 ├── agent-md/ # Project documentation & QA automation specs
@@ -16,21 +16,21 @@ repo/
 │ ├── Folder-Structure.md # Overview of full project layout
 │ ├── Tech-Stack.md # Approved libraries & tools
 │ └── qa-automation-v1/ # QA Recorder MVP documentation
-│ ├── 00_PROJECT_OVERVIEW.md
-│ ├── 00A_DATABASE_SETUP.md
-│ ├── 00B_RUST_LIBRARIES.md
-│ ├── 01_BOOTSTRAP_AND_STORAGE.md
-│ ├── 02_SESSION_MANAGER.md
-│ ├── 03_EVENT_RECORDER.md
-│ ├── 04_SCREENSHOT_CAPTURE.md
-│ ├── 05_CHECKPOINT_SYSTEM.md
-│ ├── 06_EVENT_CHUNKING_AND_SUMMARY.md
-│ ├── 07_AI_TEST_GENERATION.md
-│ ├── 08_DEDUP_AND_PRIORITY.md
-│ ├── 09_REPORT_EXPORT.md
-│ ├── 10_FEATURE_VERIFICATION_CHECKLIST.md
-│ ├── CHECKPOINT_PROGRESS.md
-│ └── STRUCTURE_DOCS.md # Links to src/ and src-tauri/ structure guides
+│     ├── 00_PROJECT_OVERVIEW.md
+│     ├── 00A_DATABASE_SETUP.md
+│     ├── 00B_RUST_LIBRARIES.md
+│     ├── 01_BOOTSTRAP_AND_STORAGE.md
+│     ├── 02_SESSION_MANAGER.md
+│     ├── 03_EVENT_RECORDER.md
+│     ├── 04_SCREENSHOT_CAPTURE.md
+│     ├── 05_CHECKPOINT_SYSTEM.md
+│     ├── 06_EVENT_CHUNKING_AND_SUMMARY.md
+│     ├── 07_AI_TEST_GENERATION.md
+│     ├── 08_DEDUP_AND_PRIORITY.md
+│     ├── 09_REPORT_EXPORT.md
+│     ├── 10_FEATURE_VERIFICATION_CHECKLIST.md
+│     ├── CHECKPOINT_PROGRESS.md
+│     └── STRUCTURE_DOCS.md # Links to src/ and src-tauri/ structure guides
 │
 ├── public/ # Static assets served directly (favicons, manifest, etc.)
 ├── src/ # Frontend source (Preact + Vite)
@@ -61,7 +61,6 @@ src/
 │ ├── shortcuts/
 │ ├── qa/
 │ ├── token/
-│ ├── translate/
 │ ├── typegen/
 │ ├── tutorial/
 │ └── feedback/
@@ -125,11 +124,9 @@ src-tauri/src/
 │ │ └── qa_commands.rs # e.g., qa_start_session, qa_end_session
 │ │
 │ └── http/ # Optional: local debug API (e.g., /debug/logs)
-├── resource/ # resource external systems
-│ ├── ocr/ # ocr tersseract
-├── src/ #
-│ ├── resources/ # ocr tersseract
-│ │ └──training/ # sql database
+├── resources/ # External resources shipped with the app (if needed)
+│ └── ocr/ # e.g., Tesseract data files
+│     └── training/ # training data files
 ├── main.rs # Tauri entry point — minimal setup logic
 └── lib.rs # Public API (optional; mainly for integration tests)
 
@@ -144,3 +141,8 @@ Guidelines:
 - If a file exceeds ~300 lines or mixes multiple concerns
 - When a feature has its own types, API calls, and UI
 - When tests or mocks are needed for a single component
+
+## Notes
+
+- Warnings like "unused import" are still expected in some files because they currently use broad imports; we can clean these up later without changing behavior.
+- Safest next backend step: ensure every request/command entrypoint calls `add_log()` for trace/error breadcrumbs (never log tokens, prompts, or user content).

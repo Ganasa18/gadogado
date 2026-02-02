@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { invoke } from "@tauri-apps/api/core";
-import { Copy, X, Settings2, Cpu, ChevronRight } from "lucide-react";
 import { useToastStore } from "../../../store/toast";
 import { useQaSessionStore } from "../../../store/qaSession";
-import { useSettingsStore } from "../../../store/settings";
+import {
+  PROVIDER_MODEL_OPTIONS,
+  useSettingsStore,
+} from "../../../store/settings";
 import { useLlmConfigBuilder } from "../../../hooks/useLlmConfig";
 import { useModelsQuery } from "../../../hooks/useLlmApi";
 import { isTauri } from "../../../utils/tauri";
@@ -12,7 +14,9 @@ import { extractPreviewUrl, isValidUrl } from "../utils/eventFormatting";
 // import { resolveScreenshotSrc } from "./utils/previewCapture";
 import ApiRequestPanel from "../components/ApiRequestPanel";
 import EventListCard from "../components/EventListCard";
-import RecorderControlPanel from "../components/RecorderControlPanel";
+import { ApiReplayQueueModal } from "../components/sessionDetail/ApiReplayQueueModal";
+import { CurlPreviewModal } from "../components/sessionDetail/CurlPreviewModal";
+import { SessionControlsCard } from "../components/sessionDetail/SessionControlsCard";
 import RecordingSummaryCard from "../components/RecordingSummaryCard";
 import RunStreamPanel from "../components/RunStreamPanel";
 import ScreenshotGalleryCard from "../components/LatestScreenshotCard";
@@ -49,6 +53,7 @@ export default function SessionDetailPage() {
     localModels,
     setModel,
     setLocalModels,
+    // apiKey,
     aiOutputLanguage,
   } = useSettingsStore();
   const buildConfig = useLlmConfigBuilder();
@@ -68,9 +73,11 @@ export default function SessionDetailPage() {
 
   const isLocalProvider =
     provider === "local" || provider === "ollama" || provider === "llama_cpp";
+  // const isOpenRouter = provider === "openrouter";
+  // const canFetchRemoteModels = isOpenRouter;
   const localConfig = useMemo(
     () => buildConfig({ maxTokens: 1024, temperature: 0.4 }),
-    [buildConfig]
+    [buildConfig],
   );
   const modelsQuery = useModelsQuery(localConfig, isLocalProvider);
 
@@ -97,8 +104,15 @@ export default function SessionDetailPage() {
     if (provider === "openai") {
       return ["gpt-4o", "gpt-4o-mini"];
     }
+    if (provider === "openrouter") {
+      const models =
+        (modelsQuery.data && modelsQuery.data.length > 0
+          ? modelsQuery.data
+          : PROVIDER_MODEL_OPTIONS.openrouter) ?? [];
+      return models.length > 0 ? models : ["custom-model"];
+    }
     return ["custom-model"];
-  }, [isLocalProvider, localModels, provider]);
+  }, [isLocalProvider, localModels, provider, modelsQuery.data]);
 
   const [curlModalOpen, setCurlModalOpen] = useState(false);
   const [curlCommand] = useState<string>("");
@@ -125,7 +139,7 @@ export default function SessionDetailPage() {
   const previewUrl = useMemo(() => extractPreviewUrl(session), [session]);
   const previewUrlValid = useMemo(
     () => (!isApiSession && previewUrl ? isValidUrl(previewUrl) : false),
-    [isApiSession, previewUrl]
+    [isApiSession, previewUrl],
   );
 
   const isRecording = recordingSessionId === sessionId;
@@ -199,7 +213,7 @@ export default function SessionDetailPage() {
 
         addToast(
           `Analyzed flow! Generated ${result.testCases.length} test cases.`,
-          "success"
+          "success",
         );
 
         setTimeout(() => {
@@ -295,13 +309,15 @@ export default function SessionDetailPage() {
       }
       setActiveRunId(null);
     }
+    // Reload screenshots and events after stopping recording
+    await Promise.all([reloadScreenshots(), loadEvents(true, true)]);
     addToast("QA recording stopped", "info");
   };
 
   const handleEndSession = async () => {
     if (!session) return;
     const confirmed = window.confirm(
-      "Are you sure you want to end this session?"
+      "Are you sure you want to end this session?",
     );
     if (!confirmed) return;
 
@@ -326,7 +342,7 @@ export default function SessionDetailPage() {
   const handleReplayEvent = (event: QaEvent) => {
     addToast(
       `Event replay is currently disabled (${event.event_type})`,
-      "info"
+      "info",
     );
   };
 
@@ -419,71 +435,29 @@ export default function SessionDetailPage() {
             ) : (
               <div className="space-y-4">
                 {/* AI & Recorder Controls Group */}
-                <div className="bg-app-card rounded-xl border border-app-border overflow-hidden shadow-sm">
-                  <div className="p-3 bg-app-panel/50 border-b border-app-border flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-app-text uppercase tracking-wide">
-                      <Settings2 className="w-3.5 h-3.5" />
-                      <span>Session Controls</span>
-                    </div>
-                  </div>
-                  <div className="p-4 space-y-5">
-                    {/* AI Model Settings */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] text-app-subtext">
-                        <span className="flex items-center gap-1.5">
-                          <Cpu className="w-3 h-3" /> Model Provider
-                        </span>
-                        <span className="uppercase">{provider}</span>
-                      </div>
-                      <div className="relative">
-                        <select
-                          value={model}
-                          onChange={(e) => setModel(e.target.value)}
-                          className="w-full bg-app-panel border border-app-border rounded-lg py-2 pl-3 pr-8 text-xs appearance-none focus:border-emerald-500/50 transition outline-none text-app-text">
-                          {modelOptions.map((opt) => (
-                            <option
-                              key={opt}
-                              value={opt}
-                              className="bg-app-panel text-app-text">
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="absolute right-3 top-2.5 pointer-events-none text-app-subtext">
-                          <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-                        </div>
-                      </div>
-                      {isLocalProvider &&
-                        modelOptions[0] === "No models found" && (
-                          <div className="text-[10px] text-amber-500/80 bg-amber-500/10 px-2 py-1.5 rounded">
-                            No local models detected. Check server.
-                          </div>
-                        )}
-                    </div>
-
-                    <div className="h-px bg-app-border/50" />
-
-                    {/* Recorder Actions */}
-                    <RecorderControlPanel
-                      session={session}
-                      runId={activeRunId}
-                      isRecording={isRecording}
-                      canStart={canStartRecording}
-                      canStop={canStopRecording}
-                      canEnd={canEndSession}
-                      targetUrl={previewUrl}
-                      screenshotDelay={screenshotDelay}
-                      recorderEventInterval={recorderEventInterval}
-                      onScreenshotDelayChange={setScreenshotDelay}
-                      onRecorderEventIntervalChange={setRecorderEventInterval}
-                      onStartManual={() => handleStartRecording("manual")}
-                      onStartAiExplore={handleAiExplore}
-                      onStop={handleStopRecording}
-                      onEndSession={handleEndSession}
-                      isExploring={isExploring}
-                    />
-                  </div>
-                </div>
+                <SessionControlsCard
+                  provider={provider}
+                  model={model}
+                  modelOptions={modelOptions}
+                  isLocalProvider={isLocalProvider}
+                  onModelChange={setModel}
+                  session={session}
+                  runId={activeRunId}
+                  isRecording={isRecording}
+                  canStart={canStartRecording}
+                  canStop={canStopRecording}
+                  canEnd={canEndSession}
+                  targetUrl={previewUrl}
+                  screenshotDelay={screenshotDelay}
+                  recorderEventInterval={recorderEventInterval}
+                  onScreenshotDelayChange={setScreenshotDelay}
+                  onRecorderEventIntervalChange={setRecorderEventInterval}
+                  onStartManual={() => handleStartRecording("manual")}
+                  onStartAiExplore={handleAiExplore}
+                  onStop={handleStopRecording}
+                  onEndSession={handleEndSession}
+                  isExploring={isExploring}
+                />
 
                 {/* Screenshots Sidebar */}
                 <ScreenshotGalleryCard
@@ -501,123 +475,20 @@ export default function SessionDetailPage() {
 
       {/* MODALS */}
       {curlModalOpen && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-3xl bg-app-panel border border-app-border rounded-2xl shadow-2xl p-5 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <div className="text-xs uppercase tracking-widest text-app-subtext">
-                  API Replay
-                </div>
-                <div className="text-sm font-semibold text-app-text">
-                  cURL Command Preview
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCurlModalOpen(false)}
-                className="rounded-full border border-app-border p-2 text-app-subtext hover:text-app-text hover:border-emerald-500/60 transition">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div>
-              {curlError ? (
-                <div className="rounded-lg border border-red-900/50 bg-red-900/10 px-3 py-2 text-[11px] text-red-200">
-                  {curlError}
-                </div>
-              ) : (
-                <pre className="max-h-64 overflow-auto rounded-lg border border-app-border bg-black/40 p-3 text-[11px] text-app-text whitespace-pre-wrap font-mono custom-scrollbar">
-                  {curlCommand}
-                </pre>
-              )}
-            </div>
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-[10px] text-app-subtext">
-                {curlCopied ? (
-                  <span className="text-emerald-400">Copied to clipboard!</span>
-                ) : (
-                  "Use this in your terminal."
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopyCurl}
-                disabled={!curlCommand}
-                className="flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-xs text-app-subtext hover:text-app-text hover:border-emerald-500/60 transition disabled:opacity-50">
-                <Copy className="w-3.5 h-3.5" />
-                Copy cURL
-              </button>
-            </div>
-          </div>
-        </div>
+        <CurlPreviewModal
+          curlCommand={curlCommand}
+          curlError={curlError}
+          curlCopied={curlCopied}
+          onClose={() => setCurlModalOpen(false)}
+          onCopy={handleCopyCurl}
+        />
       )}
 
       {apiReplayModalOpen && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-4xl bg-app-panel border border-app-border rounded-2xl shadow-2xl p-5 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <div className="text-xs uppercase tracking-widest text-app-subtext">
-                  API Replay Queue
-                </div>
-                <div className="text-sm font-semibold text-app-text">
-                  Request + Response Timeline
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setApiReplayModalOpen(false)}
-                className="rounded-full border border-app-border p-2 text-app-subtext hover:text-app-text hover:border-emerald-500/60 transition">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-              {apiReplayItems.map((item, index) => (
-                <div
-                  key={item.id}
-                  className={`rounded-lg border px-3 py-2.5 text-xs transition-colors ${
-                    item.status === "success"
-                      ? "border-emerald-500/30 bg-emerald-500/10"
-                      : item.status === "error"
-                      ? "border-red-500/30 bg-red-500/10"
-                      : item.status === "running"
-                      ? "border-sky-500/30 bg-sky-500/10"
-                      : "border-app-border bg-black/20"
-                  }`}>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-[10px] uppercase tracking-wide opacity-60">
-                      Step {index + 1}
-                    </span>
-                    <span
-                      className={`text-[10px] uppercase font-bold tracking-wider ${
-                        item.status === "success"
-                          ? "text-emerald-400"
-                          : item.status === "error"
-                          ? "text-red-400"
-                          : item.status === "running"
-                          ? "text-sky-400"
-                          : "text-app-subtext"
-                      }`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className="font-mono text-app-text opacity-90 truncate">
-                    {item.requestLabel}
-                  </div>
-                  {item.responseLabel && (
-                    <div className="mt-1 text-app-subtext text-[11px] border-t border-dashed border-white/10 pt-1">
-                      {item.responseLabel}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {apiReplayItems.length === 0 && (
-                <div className="text-xs text-app-subtext text-center py-8">
-                  No API events queued for replay.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <ApiReplayQueueModal
+          items={apiReplayItems}
+          onClose={() => setApiReplayModalOpen(false)}
+        />
       )}
     </div>
   );

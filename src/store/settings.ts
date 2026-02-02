@@ -7,9 +7,45 @@ export type LLMProvider =
   | "gemini"
   | "ollama"
   | "llama_cpp"
-  | "dll";
+  | "openrouter"
+  | "dll"
+  | "cli_proxy";
 
 export type EmbeddingProvider = "local";
+
+// RAG Context Settings Types
+export type CompactionStrategy = "adaptive" | "truncate" | "summarize" | "hybrid";
+
+export interface RagContextSettings {
+  maxContextTokens: number;
+  maxHistoryMessages: number;
+  enableCompaction: boolean;
+  compactionStrategy: CompactionStrategy;
+  summaryThreshold: number;
+  reservedForResponse: number;
+  smallModelThreshold: number;   // Below this = use efficient truncation
+  largeModelThreshold: number;   // Above this = use full summarization
+}
+
+export interface ModelContextLimit {
+  id?: number;
+  provider: string;
+  modelName: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+}
+
+// Default values based on typical local model (4K-8K context)
+export const DEFAULT_RAG_SETTINGS: RagContextSettings = {
+  maxContextTokens: 8000,
+  maxHistoryMessages: 10,
+  enableCompaction: true,
+  compactionStrategy: "adaptive",
+  summaryThreshold: 5,
+  reservedForResponse: 2048,
+  smallModelThreshold: 8000,   // Below 8K = small model
+  largeModelThreshold: 32000,  // Above 32K = large model
+};
 
 export interface PromptTemplate {
   id: string;
@@ -54,7 +90,8 @@ export const DEFAULT_TEMPLATES: PromptTemplate[] = [
 export interface SettingsState {
   provider: LLMProvider;
   model: string;
-  apiKey: string;
+  // Per-provider API keys - each provider has its own key storage
+  apiKeys: Partial<Record<LLMProvider, string>>;
   baseUrl: string;
   localModels: string[];
   embeddingProvider: EmbeddingProvider;
@@ -69,7 +106,10 @@ export interface SettingsState {
   activeTemplateId: string;
   setProvider: (provider: LLMProvider) => void;
   setModel: (model: string) => void;
-  setApiKey: (key: string) => void;
+  // Get API key for specific provider
+  getApiKey: (provider: LLMProvider) => string;
+  // Set API key for specific provider
+  setApiKey: (provider: LLMProvider, key: string) => void;
   setBaseUrl: (url: string) => void;
   setLocalModels: (models: string[]) => void;
   setEmbeddingProvider: (provider: EmbeddingProvider) => void;
@@ -78,14 +118,16 @@ export interface SettingsState {
   setAutoTranslate: (enabled: boolean) => void;
   setShortcut: (
     action: "translate" | "popup" | "enhance" | "terminal",
-    combo: string
+    combo: string,
   ) => void;
   resetShortcuts: () => void;
   setSourceLang: (lang: string) => void;
   setTargetLang: (lang: string) => void;
   setAiOutputLanguage: (lang: string) => void;
   setActiveTemplateId: (id: string) => void;
-  addPromptTemplate: (template: Omit<PromptTemplate, "id" | "isDefault">) => void;
+  addPromptTemplate: (
+    template: Omit<PromptTemplate, "id" | "isDefault">,
+  ) => void;
   updatePromptTemplate: (id: string, updates: Partial<PromptTemplate>) => void;
   deletePromptTemplate: (id: string) => void;
   restoreDefaultTemplates: () => void;
@@ -116,7 +158,9 @@ const PROVIDER_BASE_URLS: Record<LLMProvider, string> = {
   gemini: "https://generativelanguage.googleapis.com/v1beta/models",
   ollama: "http://localhost:11434/v1",
   llama_cpp: "http://localhost:8080/v1",
+  openrouter: "https://openrouter.ai/api/v1",
   dll: "",
+  cli_proxy: "http://127.0.0.1:8317/v1",
 };
 
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
@@ -125,7 +169,44 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   gemini: "gemini-2.0-flash",
   ollama: "llama3",
   llama_cpp: "llama-3-8b-instruct",
-  dll: "",
+  openrouter: "anthropic/claude-sonnet-4",
+  dll: "custom-model",
+  cli_proxy: "gpt-5.1-codex",
+};
+
+// Optional model pick-lists used by some UI screens.
+// For local/ollama/llama_cpp we usually fetch the model list from the running server.
+export const PROVIDER_MODEL_OPTIONS: Partial<Record<LLMProvider, string[]>> = {
+  openai: ["gpt-4o", "gpt-4o-mini"],
+  gemini: [
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
+    "gemini-3-flash-preview",
+  ],
+  openrouter: [
+    // Anthropic Claude models
+    "anthropic/claude-sonnet-4",
+    "anthropic/claude-3.5-sonnet",
+    "anthropic/claude-3-haiku",
+    // OpenAI models
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "openai/o1-mini",
+    // Google models
+    "google/gemini-2.0-flash-001",
+    "google/gemini-pro-1.5",
+    // Meta Llama models
+    "meta-llama/llama-3.3-70b-instruct",
+    "meta-llama/llama-3.1-8b-instruct",
+    // DeepSeek models
+    "deepseek/deepseek-chat-v3-0324",
+    "deepseek/deepseek-r1",
+    // Qwen models
+    "qwen/qwen-2.5-72b-instruct",
+    // Mistral models
+    "mistralai/mistral-large-2411",
+    "mistralai/mistral-small-3.1-24b-instruct",
+  ],
 };
 
 export interface ProviderConfig {
@@ -166,11 +247,23 @@ export const PROVIDER_CONFIGS: Record<LLMProvider, ProviderConfig> = {
     requiresApiKey: false,
     label: "Llama.cpp",
   },
+  openrouter: {
+    baseUrl: PROVIDER_BASE_URLS.openrouter,
+    defaultModel: DEFAULT_MODELS.openrouter,
+    requiresApiKey: true,
+    label: "OpenRouter",
+  },
   dll: {
     baseUrl: PROVIDER_BASE_URLS.dll,
     defaultModel: DEFAULT_MODELS.dll,
-    requiresApiKey: false,
-    label: "DLL Plugin",
+    requiresApiKey: true,
+    label: "DLL",
+  },
+  cli_proxy: {
+    baseUrl: PROVIDER_BASE_URLS.cli_proxy,
+    defaultModel: DEFAULT_MODELS.cli_proxy,
+    requiresApiKey: true,
+    label: "CLI Proxy",
   },
 };
 
@@ -183,12 +276,14 @@ const normalizeProvider = (value?: string): LLMProvider => {
   if (value === "openai") return "openai";
   if (value === "ollama") return "ollama";
   if (value === "llama_cpp") return "llama_cpp";
+  if (value === "openrouter") return "openrouter";
   if (value === "dll") return "dll";
+  if (value === "cli_proxy") return "cli_proxy";
   return "local";
 };
 
 function normalizeShortcuts(
-  shortcuts?: SettingsState["shortcuts"]
+  shortcuts?: SettingsState["shortcuts"],
 ): SettingsState["shortcuts"] {
   if (!shortcuts) {
     return DEFAULT_SHORTCUTS;
@@ -208,10 +303,10 @@ function normalizeShortcuts(
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       provider: "local",
       model: "local-model",
-      apiKey: "",
+      apiKeys: {},
       baseUrl: PROVIDER_BASE_URLS.local,
       localModels: [],
       embeddingProvider: "local",
@@ -226,7 +321,17 @@ export const useSettingsStore = create<SettingsState>()(
       activeTemplateId: "default",
       setProvider: (provider) => set({ provider }),
       setModel: (model) => set({ model }),
-      setApiKey: (apiKey) => set({ apiKey }),
+      getApiKey: (provider) => {
+        const state = get();
+        return state.apiKeys[provider] ?? "";
+      },
+      setApiKey: (provider, key) =>
+        set((state) => ({
+          apiKeys: {
+            ...state.apiKeys,
+            [provider]: key,
+          },
+        })),
       setBaseUrl: (baseUrl) => set({ baseUrl }),
       setLocalModels: (localModels) => set({ localModels }),
       setEmbeddingProvider: (embeddingProvider) => set({ embeddingProvider }),
@@ -255,7 +360,7 @@ export const useSettingsStore = create<SettingsState>()(
       updatePromptTemplate: (id, updates) =>
         set((state) => ({
           promptTemplates: state.promptTemplates.map((t) =>
-            t.id === id ? { ...t, ...updates } : t
+            t.id === id ? { ...t, ...updates } : t,
           ),
         })),
       deletePromptTemplate: (id) =>
@@ -273,7 +378,10 @@ export const useSettingsStore = create<SettingsState>()(
       navSettings: {},
       toggleNavVisibility: (path) =>
         set((state) => {
-          const current = state.navSettings[path] || { visible: true, order: 0 };
+          const current = state.navSettings[path] || {
+            visible: true,
+            order: 0,
+          };
           return {
             navSettings: {
               ...state.navSettings,
@@ -283,7 +391,10 @@ export const useSettingsStore = create<SettingsState>()(
         }),
       setNavOrder: (path, order) =>
         set((state) => {
-          const current = state.navSettings[path] || { visible: true, order: 0 };
+          const current = state.navSettings[path] || {
+            visible: true,
+            order: 0,
+          };
           return {
             navSettings: {
               ...state.navSettings,
@@ -294,7 +405,10 @@ export const useSettingsStore = create<SettingsState>()(
       sectionSettings: {},
       setSectionOrder: (sectionId, order) =>
         set((state) => {
-          const current = state.sectionSettings[sectionId] || { visible: true, order: 0 };
+          const current = state.sectionSettings[sectionId] || {
+            visible: true,
+            order: 0,
+          };
           return {
             sectionSettings: {
               ...state.sectionSettings,
@@ -306,37 +420,38 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "promptbridge-settings",
-      version: 2,
+      version: 3,
       migrate: (state) => {
         const persisted = state as SettingsState & {
           mode?: string;
           baseUrl?: string;
+          apiKey?: string; // Legacy single API key
         };
-        if (persisted.provider) {
-          const provider = normalizeProvider(persisted.provider);
-          return {
-            ...persisted,
-            provider,
-            baseUrl:
-              persisted.baseUrl ?? PROVIDER_BASE_URLS[provider] ?? persisted.baseUrl,
-            embeddingProvider: persisted.embeddingProvider ?? "local",
-            embeddingModel: persisted.embeddingModel ?? "all-minilm-l6-v2",
-            aiOutputLanguage: persisted.aiOutputLanguage ?? "English",
-            shortcuts: normalizeShortcuts(persisted.shortcuts),
-          };
+
+        // Normalize provider
+        const provider = normalizeProvider(
+          persisted.provider ?? persisted.mode
+        );
+
+        // Migrate legacy single apiKey to per-provider apiKeys
+        const apiKeys: Partial<Record<LLMProvider, string>> =
+          persisted.apiKeys ?? {};
+        if (persisted.apiKey) {
+          // Migrate the old single apiKey to the current provider
+          apiKeys[provider] = persisted.apiKey;
         }
-        const provider = normalizeProvider(persisted.mode);
-        const baseUrl = persisted.baseUrl ?? PROVIDER_BASE_URLS[provider];
+
         return {
           ...persisted,
           provider,
-          baseUrl,
+          baseUrl: persisted.baseUrl ?? PROVIDER_BASE_URLS[provider],
+          apiKeys,
           embeddingProvider: persisted.embeddingProvider ?? "local",
           embeddingModel: persisted.embeddingModel ?? "all-minilm-l6-v2",
           aiOutputLanguage: persisted.aiOutputLanguage ?? "English",
           shortcuts: normalizeShortcuts(persisted.shortcuts),
         };
       },
-    }
-  )
+    },
+  ),
 );

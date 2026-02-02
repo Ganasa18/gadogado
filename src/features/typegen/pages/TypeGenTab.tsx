@@ -142,7 +142,7 @@ export default function TypeGenTab() {
           <Select<TypeGenMode>
             options={MODES}
             value={mode}
-            onChange={setMode}
+            onChange={(v) => setMode(typeof v === "string" ? v : v[0])}
             searchable={false}
           />
         </div>
@@ -150,7 +150,7 @@ export default function TypeGenTab() {
           <label className="text-[10px] uppercase tracking-widest text-app-subtext">
             Language
           </label>
-          <Select options={LANGUAGES} value={language} onChange={setLanguage} />
+          <Select options={LANGUAGES} value={language} onChange={(v) => setLanguage(typeof v === "string" ? v : v[0])} />
         </div>
         <div className="space-y-2">
           <label className="text-[10px] uppercase tracking-widest text-app-subtext">

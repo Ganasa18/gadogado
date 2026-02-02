@@ -3,9 +3,9 @@
 // ============================================================
 // Data structures representing parsed CSV content
 
+use super::{ContentType, FieldAnalysis};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use super::{ContentType, FieldAnalysis};
 
 /// A single field in a CSV row
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,7 +116,11 @@ impl CsvRow {
             .map(|f| (f.clean_name.clone(), f.value.clone()))
             .collect();
 
-        Self { index, fields, field_map }
+        Self {
+            index,
+            fields,
+            field_map,
+        }
     }
 
     /// Get non-empty fields only

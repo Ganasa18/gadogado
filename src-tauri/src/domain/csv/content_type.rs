@@ -31,9 +31,7 @@ impl ContentType {
             ContentType::Narrative => {
                 "Long-form text with descriptive content, formatted as plain text"
             }
-            ContentType::Structured => {
-                "Short categorical or numeric data, formatted as Markdown"
-            }
+            ContentType::Structured => "Short categorical or numeric data, formatted as Markdown",
         }
     }
 }

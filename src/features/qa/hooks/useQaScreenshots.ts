@@ -18,17 +18,27 @@ export default function useQaScreenshots(sessionId: string) {
   const [error, setError] = useState<string | null>(null);
 
   const loadScreenshots = useCallback(async () => {
-    if (!sessionId) return;
+    console.log("[useQaScreenshots] loadScreenshots called, sessionId:", sessionId);
+    if (!sessionId) {
+      console.log("[useQaScreenshots] Early return: sessionId is empty");
+      return;
+    }
     setLoading(true);
     setError(null);
+    console.log("[useQaScreenshots] Calling qa_list_screenshots with sessionId:", sessionId);
     try {
       const events = await invoke<QaEvent[]>("qa_list_screenshots", { sessionId });
       const isTauriApp = isTauri();
+      console.log("[useQaScreenshots] Received events count:", events.length);
       
       const items: ScreenshotItem[] = [];
       for (const e of events) {
-          if (!e.screenshot_path) continue;
+          if (!e.screenshot_path) {
+            console.log("[useQaScreenshots] Event missing screenshot_path:", e.id);
+            continue;
+          }
           const src = resolveScreenshotSrc(e.screenshot_path, isTauriApp);
+          console.log("[useQaScreenshots] Event screenshot processed:", e.id, "path:", e.screenshot_path, "src:", src);
           if (src) {
               items.push({
                   id: e.id,
@@ -39,7 +49,7 @@ export default function useQaScreenshots(sessionId: string) {
               });
           }
       }
-      
+      console.log("[useQaScreenshots] Final screenshots count:", items.length);
       setScreenshots(items);
     } catch (err) {
       console.error("Failed to load screenshots:", err);
