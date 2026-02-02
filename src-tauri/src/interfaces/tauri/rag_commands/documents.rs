@@ -97,6 +97,34 @@ pub async fn rag_list_documents(
 
 
 #[tauri::command]
+pub async fn rag_get_collection_document_type(
+    state: State<'_, Arc<super::AppState>>,
+    collection_id: i64,
+) -> Result<Option<String>> {
+    add_log(
+        &state.logs,
+        "INFO",
+        "RAG",
+        &format!("Getting document type for collection: {}", collection_id),
+    );
+
+    state
+        .rag_repository
+        .get_collection_document_type(collection_id)
+        .await
+        .map_err(|e| {
+            add_log(
+                &state.logs,
+                "ERROR",
+                "RAG",
+                &format!("Failed to get collection document type: {}", e),
+            );
+            e
+        })
+}
+
+
+#[tauri::command]
 pub async fn rag_import_file(
     state: State<'_, Arc<super::AppState>>,
     file_path: String,
@@ -120,6 +148,46 @@ pub async fn rag_import_file(
             );
             add_log(&state.logs, "WARN", "RAG", &err_msg);
             return Err(crate::domain::error::AppError::ValidationError(err_msg));
+        }
+
+        // DOCUMENT TYPE VALIDATION: Enforce 1 collection = 1 document type
+        let new_file_type = Path::new(&file_path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("unknown")
+            .to_lowercase();
+
+        if let Ok(Some(existing_type)) = state.rag_repository.get_collection_document_type(coll_id).await {
+            // Normalize web type to lowercase for comparison
+            let existing_type_normalized = existing_type.to_lowercase();
+
+            if existing_type_normalized != new_file_type {
+                let type_name = match existing_type_normalized.as_str() {
+                    "pdf" => "PDF",
+                    "docx" => "Word (DOCX)",
+                    "xlsx" => "Excel (XLSX)",
+                    "csv" => "CSV",
+                    "txt" => "Text",
+                    "md" => "Markdown",
+                    "web" => "Web content",
+                    _ => &existing_type_normalized,
+                };
+                let new_type_name = match new_file_type.as_str() {
+                    "pdf" => "PDF",
+                    "docx" => "Word (DOCX)",
+                    "xlsx" => "Excel (XLSX)",
+                    "csv" => "CSV",
+                    "txt" => "Text",
+                    "md" => "Markdown",
+                    _ => &new_file_type,
+                };
+                let err_msg = format!(
+                    "Collection '{}' already contains {} documents. Cannot add {} files to this collection. Please create a new collection for {} files.",
+                    collection.name, type_name, new_type_name, new_type_name
+                );
+                add_log(&state.logs, "WARN", "RAG", &err_msg);
+                return Err(crate::domain::error::AppError::ValidationError(err_msg));
+            }
         }
     }
 

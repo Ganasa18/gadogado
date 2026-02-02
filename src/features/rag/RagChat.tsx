@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useEnhanceMutation } from "../../hooks/useLlmApi";
 import { RagChatComposer } from "./components/RagChatComposer";
 import { RagChatDbBanner } from "./components/RagChatDbBanner";
@@ -22,6 +24,7 @@ export default function RagChat() {
   const [sessionConfigOpen, setSessionConfigOpen] = useState(false);
   const [chatMode, setChatMode] = useState<ChatMode>("rag");
   const [isBannerDismissed, setIsBannerDismissed] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
 
   const {
     selectedCollectionId,
@@ -196,6 +199,10 @@ export default function RagChat() {
     void freeChat.newConversation();
   }, [freeChat]);
 
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarOpen((prev) => !prev);
+  }, []);
+
   return (
     <div className="flex h-screen bg-app-bg text-app-text overflow-hidden font-sans select-none">
       <RagSessionConfigModal
@@ -221,6 +228,8 @@ export default function RagChat() {
       />
 
       <RagChatSidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
         collections={collections}
         selectedCollectionId={selectedCollectionId}
         onSelectCollection={handleSelectCollection}
@@ -244,6 +253,24 @@ export default function RagChat() {
           onNewSession={handleNewSession}
           hasMessages={currentMessages.length > 0}
         />
+
+        {/* Floating Toggle Button */}
+        <AnimatePresence>
+          {!isSidebarOpen && (
+            <motion.button
+              initial={{ x: -20, opacity: 0 }}
+              animate={{ x: 0, opacity: 0.8 }}
+              exit={{ x: -20, opacity: 0 }}
+              whileHover={{ x: 2, opacity: 1, backgroundColor: "var(--color-primary)" }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              onClick={toggleSidebar}
+              className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-app-accent text-white p-1 rounded-r-md shadow-md border border-app-accent/50 transition-colors group"
+              title="Open Sidebar"
+            >
+              <ChevronRight className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+            </motion.button>
+          )}
+        </AnimatePresence>
 
         {chatMode !== "free" && !isBannerDismissed && (
           <RagChatDbBanner

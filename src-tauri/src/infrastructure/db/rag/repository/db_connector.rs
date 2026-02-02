@@ -1,7 +1,15 @@
 use crate::domain::error::{AppError, Result};
 use crate::domain::rag_entities::{
     DbAllowlistProfile, DbConnection, DbConnectionInput, QueryTemplate, QueryTemplateInput,
+    QueryTemplateDuplicateInfo, QueryTemplateImportPreview, QueryTemplateImportPreviewItem,
+    QueryTemplateImportResult,
 };
+use crate::infrastructure::db::rag::connection::{
+    split_sql_statements, trim_leading_ws_and_comments,
+};
+
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 use super::entities::{DbAllowlistProfileEntity, DbConnectionEntity, QueryTemplateEntity};
 use super::RagRepository;
@@ -588,4 +596,506 @@ impl RagRepository {
 
         Ok(result.map(|(id,)| id))
     }
+
+    /// Import query templates from a SQL file.
+    ///
+    /// Safety: only allows INSERT statements targeting db_query_templates.
+    pub async fn import_query_templates_from_sql_file(&self, file_path: &str) -> Result<i64> {
+        let sql_script = std::fs::read_to_string(file_path).map_err(|e| {
+            AppError::ValidationError(format!(
+                "Failed to read SQL file ({}): {}",
+                file_path, e
+            ))
+        })?;
+
+        let statements = split_sql_statements(&sql_script);
+        if statements.is_empty() {
+            return Ok(0);
+        }
+
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to start import transaction: {}", e))
+        })?;
+
+        let mut executed: i64 = 0;
+
+        for stmt in statements {
+            let sql = trim_leading_ws_and_comments(&stmt).trim();
+            if sql.is_empty() {
+                continue;
+            }
+
+            let upper = sql.to_ascii_uppercase();
+            let allowed = upper.starts_with("INSERT INTO DB_QUERY_TEMPLATES")
+                || upper.starts_with("INSERT OR IGNORE INTO DB_QUERY_TEMPLATES")
+                || upper.starts_with("INSERT OR REPLACE INTO DB_QUERY_TEMPLATES");
+
+            if !allowed {
+                return Err(AppError::ValidationError(format!(
+                    "Unsupported SQL in import (only INSERT into db_query_templates allowed): {}",
+                    sql.chars().take(80).collect::<String>()
+                )));
+            }
+
+            sqlx::query(sql)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to execute import SQL statement: {}", e))
+                })?;
+
+            executed += 1;
+        }
+
+        tx.commit().await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to commit import transaction: {}", e))
+        })?;
+
+        Ok(executed)
+    }
+
+    pub async fn preview_import_query_templates_from_sql_file(
+        &self,
+        file_path: &str,
+        target_profile_id: i64,
+    ) -> Result<QueryTemplateImportPreview> {
+        let sql_script = std::fs::read_to_string(file_path).map_err(|e| {
+            AppError::ValidationError(format!(
+                "Failed to read SQL file ({}): {}",
+                file_path, e
+            ))
+        })?;
+
+        let statements = split_sql_statements(&sql_script);
+        let statement_count = statements.len() as i64;
+
+        // Use a single connection for TEMP table lifetime.
+        let mut conn = self.pool.acquire().await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to acquire DB connection for preview: {}", e))
+        })?;
+
+        // Build a temp table we can safely insert into.
+        sqlx::query("DROP TABLE IF EXISTS temp_import_query_templates")
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to reset temp import table: {}", e))
+            })?;
+
+        sqlx::query(
+            r#"
+            CREATE TEMP TABLE temp_import_query_templates (
+              allowlist_profile_id INTEGER NOT NULL,
+              name TEXT NOT NULL,
+              description TEXT,
+              intent_keywords TEXT NOT NULL,
+              example_question TEXT NOT NULL,
+              query_pattern TEXT NOT NULL,
+              pattern_type TEXT NOT NULL,
+              tables_used TEXT NOT NULL,
+              priority INTEGER DEFAULT 0,
+              is_enabled INTEGER DEFAULT 1,
+              is_pattern_agnostic INTEGER DEFAULT 0
+            )
+            "#,
+        )
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create temp import table: {}", e)))?;
+
+        // Execute only allowed INSERTs, but redirect them to the temp table.
+        // If a statement fails, collect it as a preview error and continue.
+        let mut statement_errors: Vec<String> = Vec::new();
+        for stmt in &statements {
+            let sql = trim_leading_ws_and_comments(stmt).trim();
+            if sql.is_empty() {
+                continue;
+            }
+
+            let upper = sql.to_ascii_uppercase();
+            let allowed = upper.starts_with("INSERT INTO")
+                || upper.starts_with("INSERT OR IGNORE INTO")
+                || upper.starts_with("INSERT OR REPLACE INTO");
+            if !allowed {
+                continue;
+            }
+
+            let lower = sql.to_ascii_lowercase();
+            let into_pos = lower.find("into");
+            if into_pos.is_none() {
+                continue;
+            }
+
+            let after_into = &lower[into_pos.unwrap()..];
+            let table_pos_rel = after_into.find("db_query_templates");
+            if table_pos_rel.is_none() {
+                continue;
+            }
+
+            // Replace the first occurrence after INTO to avoid touching query_pattern payloads.
+            let table_pos = into_pos.unwrap() + table_pos_rel.unwrap();
+            let table_end = table_pos + "db_query_templates".len();
+
+            let rewritten = format!(
+                "{}{}{}",
+                &sql[..table_pos],
+                "temp_import_query_templates",
+                &sql[table_end..]
+            );
+
+            // Execute rewritten statement.
+            if let Err(e) = sqlx::query(&rewritten).execute(&mut *conn).await {
+                let snippet: String = sql.chars().take(140).collect();
+                statement_errors.push(format!("{} ... ({})", snippet, e));
+            }
+        }
+
+        #[derive(sqlx::FromRow)]
+        struct TempImportRow {
+            rowid: i64,
+            allowlist_profile_id: i64,
+            name: String,
+            description: Option<String>,
+            intent_keywords: String,
+            example_question: String,
+            query_pattern: String,
+            pattern_type: String,
+            tables_used: String,
+            priority: Option<i64>,
+            is_enabled: Option<i64>,
+            is_pattern_agnostic: Option<i64>,
+        }
+
+        let rows: Vec<TempImportRow> = sqlx::query_as(
+            r#"
+            SELECT
+              rowid,
+              allowlist_profile_id,
+              name,
+              description,
+              intent_keywords,
+              example_question,
+              query_pattern,
+              pattern_type,
+              tables_used,
+              priority,
+              is_enabled,
+              is_pattern_agnostic
+            FROM temp_import_query_templates
+            ORDER BY rowid ASC
+            "#,
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to read preview rows: {}", e)))?;
+
+        let parsed_count = rows.len() as i64;
+
+        // Existing templates for duplicate detection (target profile).
+        let existing = self.list_query_templates(Some(target_profile_id)).await?;
+        let mut existing_by_name: HashMap<String, &QueryTemplate> = HashMap::new();
+        let mut existing_by_pattern: HashMap<String, &QueryTemplate> = HashMap::new();
+        let mut existing_by_exact: HashMap<(String, String), &QueryTemplate> = HashMap::new();
+        for t in &existing {
+            let name_n = normalize_text(&t.name);
+            let pattern_n = normalize_text(&t.query_pattern);
+            existing_by_name.insert(name_n.clone(), t);
+            existing_by_pattern.insert(pattern_n.clone(), t);
+            existing_by_exact.insert((name_n, pattern_n), t);
+        }
+
+        // Detect duplicates inside the import file itself.
+        let mut seen_exact: HashMap<(String, String), i64> = HashMap::new();
+        let mut seen_name: HashMap<String, i64> = HashMap::new();
+
+        let mut items: Vec<QueryTemplateImportPreviewItem> = Vec::new();
+        let mut ok_count: i64 = 0;
+        let mut warning_count: i64 = 0;
+        let mut error_count: i64 = 0;
+        let mut duplicate_count: i64 = 0;
+
+        for r in rows {
+            let mut issues: Vec<String> = Vec::new();
+
+            let pattern_type = r.pattern_type.trim().to_string();
+            if !is_allowed_pattern_type(&pattern_type) {
+                issues.push(format!("ERROR: Unsupported pattern_type: {}", pattern_type));
+            }
+
+            if r.name.trim().is_empty() {
+                issues.push("ERROR: Missing name".to_string());
+            }
+            if r.example_question.trim().is_empty() {
+                issues.push("ERROR: Missing example_question".to_string());
+            }
+            if r.query_pattern.trim().is_empty() {
+                issues.push("ERROR: Missing query_pattern".to_string());
+            }
+
+            let intent_keywords: Vec<String> = match serde_json::from_str(&r.intent_keywords) {
+                Ok(v) => v,
+                Err(e) => {
+                    issues.push(format!("ERROR: intent_keywords JSON invalid: {}", e));
+                    Vec::new()
+                }
+            };
+
+            let tables_used: Vec<String> = match serde_json::from_str(&r.tables_used) {
+                Ok(v) => v,
+                Err(e) => {
+                    issues.push(format!("ERROR: tables_used JSON invalid: {}", e));
+                    Vec::new()
+                }
+            };
+
+            if intent_keywords.is_empty() {
+                issues.push("WARN: intent_keywords empty".to_string());
+            }
+
+            let original_profile_id = r.allowlist_profile_id;
+            if original_profile_id != target_profile_id {
+                issues.push(format!(
+                    "WARN: allowlist_profile_id mismatch (file={}, target={})",
+                    original_profile_id, target_profile_id
+                ));
+            }
+
+            let name_n = normalize_text(&r.name);
+            let pattern_n = normalize_text(&r.query_pattern);
+
+            if let Some(first_rowid) = seen_exact.get(&(name_n.clone(), pattern_n.clone())) {
+                issues.push(format!(
+                    "WARN: duplicate in file (same name+pattern as rowid={})",
+                    first_rowid
+                ));
+            } else {
+                seen_exact.insert((name_n.clone(), pattern_n.clone()), r.rowid);
+            }
+
+            if let Some(first_rowid) = seen_name.get(&name_n) {
+                issues.push(format!(
+                    "WARN: duplicate name in file (same name as rowid={})",
+                    first_rowid
+                ));
+            } else {
+                seen_name.insert(name_n.clone(), r.rowid);
+            }
+
+            let duplicate: Option<QueryTemplateDuplicateInfo> = if let Some(t) =
+                existing_by_exact.get(&(name_n.clone(), pattern_n.clone()))
+            {
+                duplicate_count += 1;
+                Some(QueryTemplateDuplicateInfo {
+                    kind: "exact".to_string(),
+                    existing_template_id: t.id,
+                    existing_template_name: t.name.clone(),
+                })
+            } else if let Some(t) = existing_by_name.get(&name_n) {
+                duplicate_count += 1;
+                Some(QueryTemplateDuplicateInfo {
+                    kind: "name".to_string(),
+                    existing_template_id: t.id,
+                    existing_template_name: t.name.clone(),
+                })
+            } else if let Some(t) = existing_by_pattern.get(&pattern_n) {
+                duplicate_count += 1;
+                Some(QueryTemplateDuplicateInfo {
+                    kind: "pattern".to_string(),
+                    existing_template_id: t.id,
+                    existing_template_name: t.name.clone(),
+                })
+            } else {
+                None
+            };
+
+            let key = compute_import_key(
+                target_profile_id,
+                &r.name,
+                &r.query_pattern,
+                &pattern_type,
+                r.priority.unwrap_or(0) as i32,
+            );
+
+            let template = QueryTemplateInput {
+                allowlist_profile_id: target_profile_id,
+                name: r.name,
+                description: r.description,
+                intent_keywords,
+                example_question: r.example_question,
+                query_pattern: r.query_pattern,
+                pattern_type,
+                tables_used,
+                priority: Some(r.priority.unwrap_or(0) as i32),
+                is_enabled: Some(r.is_enabled.unwrap_or(1) != 0),
+                is_pattern_agnostic: Some(r.is_pattern_agnostic.unwrap_or(0) != 0),
+            };
+
+            let has_error = issues.iter().any(|i| i.starts_with("ERROR:"));
+            let has_warning = issues.iter().any(|i| i.starts_with("WARN:"));
+            if has_error {
+                error_count += 1;
+            } else if has_warning || duplicate.is_some() {
+                warning_count += 1;
+            } else {
+                ok_count += 1;
+            }
+
+            items.push(QueryTemplateImportPreviewItem {
+                key,
+                original_allowlist_profile_id: original_profile_id,
+                template,
+                issues,
+                duplicate,
+            });
+        }
+
+        Ok(QueryTemplateImportPreview {
+            file_path: file_path.to_string(),
+            target_profile_id,
+            statement_count,
+            parsed_count,
+            ok_count,
+            warning_count,
+            error_count,
+            duplicate_count,
+            statement_errors,
+            items,
+        })
+    }
+
+    pub async fn import_query_templates_from_preview(
+        &self,
+        target_profile_id: i64,
+        items: Vec<QueryTemplateInput>,
+    ) -> Result<QueryTemplateImportResult> {
+        if items.is_empty() {
+            return Ok(QueryTemplateImportResult {
+                requested: 0,
+                imported: 0,
+                skipped_duplicates: 0,
+            });
+        }
+
+        // Re-check duplicates at import time for safety.
+        let existing = self.list_query_templates(Some(target_profile_id)).await?;
+        let mut existing_exact: HashSet<(String, String)> = HashSet::new();
+        for t in &existing {
+            existing_exact.insert((normalize_text(&t.name), normalize_text(&t.query_pattern)));
+        }
+
+        let requested = items.len() as i64;
+
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to start import transaction: {}", e))
+        })?;
+
+        let mut imported: i64 = 0;
+        let mut skipped_duplicates: i64 = 0;
+
+        for mut item in items {
+            item.allowlist_profile_id = target_profile_id;
+
+            if !is_allowed_pattern_type(&item.pattern_type) {
+                return Err(AppError::ValidationError(format!(
+                    "Invalid pattern_type in import selection: {}",
+                    item.pattern_type
+                )));
+            }
+
+            let exact_key = (
+                normalize_text(&item.name),
+                normalize_text(&item.query_pattern),
+            );
+            if existing_exact.contains(&exact_key) {
+                skipped_duplicates += 1;
+                continue;
+            }
+
+            // Serialize JSON fields
+            let keywords_json = serde_json::to_string(&item.intent_keywords).map_err(|e| {
+                AppError::ValidationError(format!("Invalid intent keywords: {}", e))
+            })?;
+            let tables_json = serde_json::to_string(&item.tables_used).map_err(|e| {
+                AppError::ValidationError(format!("Invalid tables_used: {}", e))
+            })?;
+
+            let _result = sqlx::query_as::<_, QueryTemplateEntity>(
+                r#"
+                INSERT INTO db_query_templates (
+                    allowlist_profile_id, name, description, intent_keywords,
+                    example_question, query_pattern, pattern_type, tables_used,
+                    priority, is_enabled, is_pattern_agnostic
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING *
+                "#,
+            )
+            .bind(item.allowlist_profile_id)
+            .bind(&item.name)
+            .bind(&item.description)
+            .bind(&keywords_json)
+            .bind(&item.example_question)
+            .bind(&item.query_pattern)
+            .bind(&item.pattern_type)
+            .bind(&tables_json)
+            .bind(item.priority.unwrap_or(0))
+            .bind(item.is_enabled.unwrap_or(true) as i64)
+            .bind(item.is_pattern_agnostic.unwrap_or(false) as i64)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to import template: {}", e)))?;
+
+            existing_exact.insert(exact_key);
+            imported += 1;
+        }
+
+        tx.commit().await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to commit import transaction: {}", e))
+        })?;
+
+        Ok(QueryTemplateImportResult {
+            requested,
+            imported,
+            skipped_duplicates,
+        })
+    }
+}
+
+fn normalize_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for ch in s.trim().chars() {
+        if ch.is_whitespace() {
+            if !prev_space {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            out.push(ch.to_ascii_lowercase());
+            prev_space = false;
+        }
+    }
+    out
+}
+
+fn is_allowed_pattern_type(s: &str) -> bool {
+    matches!(
+        s,
+        "select_where_in" | "select_where_eq" | "select_with_join" | "aggregate" | "custom"
+    )
+}
+
+fn compute_import_key(
+    profile_id: i64,
+    name: &str,
+    query_pattern: &str,
+    pattern_type: &str,
+    priority: i32,
+) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    profile_id.hash(&mut hasher);
+    normalize_text(name).hash(&mut hasher);
+    normalize_text(query_pattern).hash(&mut hasher);
+    pattern_type.hash(&mut hasher);
+    priority.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
 }

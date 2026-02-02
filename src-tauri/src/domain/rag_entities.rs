@@ -245,20 +245,20 @@ pub struct QueryTemplate {
     pub allowlist_profile_id: i64,
     pub name: String,
     pub description: Option<String>,
-    pub intent_keywords: Vec<String>,       // Parsed from JSON
+    pub intent_keywords: Vec<String>, // Parsed from JSON
     pub example_question: String,
     pub query_pattern: String,
-    pub pattern_type: String,               // 'select_where_in' | 'select_where_eq' | 'select_with_join' | 'aggregate' | 'custom'
-    pub tables_used: Vec<String>,           // Parsed from JSON
+    pub pattern_type: String, // 'select_where_in' | 'select_where_eq' | 'select_with_join' | 'aggregate' | 'custom'
+    pub tables_used: Vec<String>, // Parsed from JSON
     pub priority: i32,
     pub is_enabled: bool,
-    pub is_pattern_agnostic: bool,          // true = pattern works across any table (abstract SQL pattern), false = table-specific
+    pub is_pattern_agnostic: bool, // true = pattern works across any table (abstract SQL pattern), false = table-specific
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 /// Input for creating/updating query templates
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct QueryTemplateInput {
     pub allowlist_profile_id: i64,
     pub name: String,
@@ -270,7 +270,48 @@ pub struct QueryTemplateInput {
     pub tables_used: Vec<String>,
     pub priority: Option<i32>,
     pub is_enabled: Option<bool>,
-    pub is_pattern_agnostic: Option<bool>,  // Optional in input, defaults to false
+    pub is_pattern_agnostic: Option<bool>, // Optional in input, defaults to false
+}
+
+// ============================================================
+// QUERY TEMPLATE IMPORT (Preview + Selective Import)
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryTemplateDuplicateInfo {
+    pub kind: String, // exact | name | pattern
+    pub existing_template_id: i64,
+    pub existing_template_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryTemplateImportPreviewItem {
+    pub key: String,
+    pub original_allowlist_profile_id: i64,
+    pub template: QueryTemplateInput,
+    pub issues: Vec<String>,
+    pub duplicate: Option<QueryTemplateDuplicateInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryTemplateImportPreview {
+    pub file_path: String,
+    pub target_profile_id: i64,
+    pub statement_count: i64,
+    pub parsed_count: i64,
+    pub ok_count: i64,
+    pub warning_count: i64,
+    pub error_count: i64,
+    pub duplicate_count: i64,
+    pub statement_errors: Vec<String>,
+    pub items: Vec<QueryTemplateImportPreviewItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryTemplateImportResult {
+    pub requested: i64,
+    pub imported: i64,
+    pub skipped_duplicates: i64,
 }
 
 /// Information about a database table

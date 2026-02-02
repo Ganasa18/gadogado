@@ -11,12 +11,13 @@ export function RagChatHeader(props: {
     <header className="px-4 py-4 border-b border-app-border/30 bg-app-bg/50 sticky top-0 z-20">
       <div className="max-w-5xl mx-auto w-full flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {/* <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-            <div className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span className="text-[11px] font-bold text-emerald-500 uppercase tracking-widest">
-              System Operational
-            </span>
-          </div> */}
+          {/* Logo or placeholder for balance on tablets/mobile */}
+          <div className="lg:hidden flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-app-accent flex items-center justify-center">
+              <span className="text-[10px] font-bold text-white">R</span>
+            </div>
+            <span className="text-xs font-bold text-app-text">Chat</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">

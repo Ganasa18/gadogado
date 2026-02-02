@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { QueryTemplate, QueryTemplateInput } from "../types";
+import type {
+  QueryTemplate,
+  QueryTemplateImportPreview,
+  QueryTemplateImportResult,
+  QueryTemplateInput,
+} from "../types";
 
 // Logging utility for debugging
 const add_log = (category: string, message: string, data?: unknown) => {
@@ -81,6 +86,63 @@ export async function dbToggleQueryTemplate(
     return result;
   } catch (err) {
     add_log("API", "dbToggleQueryTemplate: ERROR", { error: err, templateId, isEnabled });
+    throw err;
+  }
+}
+
+export async function dbPreviewQueryTemplatesImportFromSqlFile(
+  filePath: string,
+  targetProfileId: number,
+): Promise<QueryTemplateImportPreview> {
+  add_log("API", "dbPreviewQueryTemplatesImportFromSqlFile: Calling", {
+    filePath,
+    targetProfileId,
+  });
+  try {
+    const result = await invoke<QueryTemplateImportPreview>(
+      "db_preview_query_templates_import_from_sql_file",
+      {
+        filePath,
+        targetProfileId,
+      },
+    );
+    add_log("API", "dbPreviewQueryTemplatesImportFromSqlFile: Success", {
+      parsed: result.parsed_count,
+    });
+    return result;
+  } catch (err) {
+    add_log("API", "dbPreviewQueryTemplatesImportFromSqlFile: ERROR", {
+      error: err,
+      filePath,
+      targetProfileId,
+    });
+    throw err;
+  }
+}
+
+export async function dbImportQueryTemplatesFromPreview(
+  targetProfileId: number,
+  items: QueryTemplateInput[],
+): Promise<QueryTemplateImportResult> {
+  add_log("API", "dbImportQueryTemplatesFromPreview: Calling", {
+    targetProfileId,
+    count: items.length,
+  });
+  try {
+    const result = await invoke<QueryTemplateImportResult>(
+      "db_import_query_templates_from_preview",
+      {
+        targetProfileId,
+        items,
+      },
+    );
+    add_log("API", "dbImportQueryTemplatesFromPreview: Success", { result });
+    return result;
+  } catch (err) {
+    add_log("API", "dbImportQueryTemplatesFromPreview: ERROR", {
+      error: err,
+      targetProfileId,
+    });
     throw err;
   }
 }

@@ -5,13 +5,17 @@ import {
   Settings,
   Plus,
   MessageCircleMore,
+  ChevronLeft,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "../../../utils/cn";
 import { Select } from "../../../shared/components/Select";
 import type { Conversation } from "../api";
 import type { RagCollection, ChatMode } from "../types";
 
 export function RagChatSidebar(props: {
+  isOpen: boolean;
+  onClose: () => void;
   collections: RagCollection[];
   selectedCollectionId: number | null;
   onSelectCollection: (collectionId: number) => void;
@@ -29,6 +33,8 @@ export function RagChatSidebar(props: {
   onNewFreeChat: () => void;
 }) {
   const {
+    isOpen,
+    onClose,
     collections,
     selectedCollectionId,
     onSelectCollection,
@@ -46,21 +52,55 @@ export function RagChatSidebar(props: {
   } = props;
 
   return (
-    <aside className="w-[280px] border-r border-app-border/30 flex flex-col bg-app-bg select-none">
-      {/* Brand Header */}
-      <div className="p-6">
-        <div className="flex items-center gap-3 bg-app-card/30 p-4 rounded-2xl border border-app-border/20">
-          <div className="w-10 h-10 rounded-xl bg-app-accent flex items-center justify-center">
-            <MessageCircleMore className="w-6 h-6 text-white" />
+    <>
+      {/* Mobile Overlay */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-all duration-300"
+            onClick={onClose}
+          />
+        )}
+      </AnimatePresence>
+
+      <motion.aside
+        initial={false}
+        animate={{ 
+          x: isOpen ? 0 : (typeof window !== 'undefined' && window.innerWidth < 1024 ? "-100%" : 0),
+          width: isOpen ? 280 : (typeof window !== 'undefined' && window.innerWidth < 1024 ? 280 : 0),
+          opacity: isOpen ? 1 : (typeof window !== 'undefined' && window.innerWidth < 1024 ? 1 : 0),
+        }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className={cn(
+          "fixed inset-y-0 left-0 lg:relative z-50 border-r border-app-border/30 flex flex-col bg-app-bg select-none",
+          !isOpen && "pointer-events-none lg:border-none"
+        )}>
+        {/* Brand Header */}
+        <div className="p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3 bg-app-card/30 p-2 sm:p-4 rounded-2xl border border-app-border/20 grow">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-app-accent flex items-center justify-center shrink-0">
+              <MessageCircleMore className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <h2 className="text-xs sm:text-sm font-bold text-app-text leading-tight truncate">
+                RAG Assistant
+              </h2>
+              <span className="text-[9px] sm:text-[11px] text-app-subtext font-medium truncate">
+                Enterprise Knowledge
+              </span>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <h2 className="text-sm font-bold text-app-text leading-tight">
-              RAG Assistant
-            </h2>
-            <span className="text-[11px] text-app-subtext font-medium">Enterprise Knowledge</span>
-          </div>
+
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-app-card rounded-xl text-app-subtext transition-colors ml-2 bg-app-card/20 border border-app-border/10"
+            title="Collapse Sidebar">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
         </div>
-      </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6">
         {/* Mode Selector */}
@@ -190,7 +230,8 @@ export function RagChatSidebar(props: {
           </button>
         </div>
       </div>
-    </aside>
+    </motion.aside>
+    </>
   );
 }
 

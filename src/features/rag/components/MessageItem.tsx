@@ -9,14 +9,18 @@ import {
   X,
   Maximize2,
   Code,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { cn } from "../../../utils/cn";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { TypewriterText } from "./TypewriterText";
 import type { ChatMessage, RagQueryResult, TemplateMatch } from "../types";
 // import { isLowConfidenceSources } from "../ragChatUtils";
 
 interface MessageItemProps {
   message: ChatMessage;
+  isLatest?: boolean;
   onRegenerate: (query: string) => void;
   /** Regenerate with a specific template (for DB collections) */
   onRegenerateWithTemplate?: (
@@ -26,26 +30,30 @@ interface MessageItemProps {
   ) => void;
   onCopy: (text: string, id: string) => void;
   copiedId: string | null;
+  onTypewriterComplete?: () => void;
 }
 
 export function MessageItem({
   message,
+  isLatest,
   onRegenerate,
   onRegenerateWithTemplate,
   onCopy,
   copiedId,
+  onTypewriterComplete,
 }: MessageItemProps) {
   const [showSources, setShowSources] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSqlQuery, setShowSqlQuery] = useState(false);
   const [openSourceIndex, setOpenSourceIndex] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
   const isUser = message.type === "user";
 
   // Check if this is a DB message with templates
   const hasTemplates =
-    message.telemetry?.matched_templates &&
-    message.telemetry.matched_templates.length > 0;
-  const selectedTemplateId = message.telemetry?.template_id;
+    message.telemetry?.matchedTemplates &&
+    message.telemetry.matchedTemplates.length > 0;
+  const selectedTemplateId = message.telemetry?.templateId;
 
   return (
     <div
@@ -86,7 +94,31 @@ export function MessageItem({
         ) : (
           <div className="space-y-4">
             <div className="text-[15px] leading-relaxed text-app-text select-text prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-app-card prose-pre:border prose-pre:border-app-border/40 prose-code:text-app-accent">
-              <MarkdownRenderer content={message.content} />
+              {isLatest ? (
+                <TypewriterText content={message.content} onComplete={onTypewriterComplete} />
+              ) : (
+                <MarkdownRenderer content={message.content} />
+              )}
+            </div>
+
+            {/* Feedback & Actions for Assistant */}
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={() => setFeedback(feedback === "like" ? null : "like")}
+                className={cn(
+                  "p-1.5 rounded-lg transition-all border border-transparent hover:border-app-border/40 hover:bg-app-card/30 group/feedback",
+                  feedback === "like" ? "text-app-accent bg-app-accent/5" : "text-app-subtext"
+                )}>
+                <ThumbsUp className={cn("w-3.5 h-3.5", feedback === "like" ? "fill-current" : "")} />
+              </button>
+              <button
+                onClick={() => setFeedback(feedback === "dislike" ? null : "dislike")}
+                className={cn(
+                  "p-1.5 rounded-lg transition-all border border-transparent hover:border-app-border/40 hover:bg-app-card/30 group/feedback",
+                  feedback === "dislike" ? "text-red-400 bg-red-400/5" : "text-app-subtext"
+                )}>
+                <ThumbsDown className={cn("w-3.5 h-3.5", feedback === "dislike" ? "fill-current" : "")} />
+              </button>
             </div>
 
             {/* Telemetry/Metatdata */}
@@ -97,22 +129,22 @@ export function MessageItem({
                     Rows
                   </span>
                   <span className="text-[11px] font-medium text-app-text">
-                    {message.telemetry.row_count}
+                    {message.telemetry.rowCount}
                   </span>
                 </div>
-                {message.telemetry.latency_ms && (
+                {message.telemetry.latencyMs && (
                   <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-app-card border border-app-border/40">
                     <span className="text-[10px] font-bold text-app-subtext uppercase">
                       Latency
                     </span>
                     <span className="text-[11px] font-medium text-app-text">
-                      {message.telemetry.latency_ms} ms
+                      {message.telemetry.latencyMs} ms
                     </span>
                   </div>
                 )}
 
                 {/* SQL Query Toggle Button */}
-                {(message.telemetry.executedSql || message.telemetry.query_plan) && (
+                {(message.telemetry.executedSql || message.telemetry.queryPlan) && (
                   <button
                     onClick={() => setShowSqlQuery(!showSqlQuery)}
                     className="flex items-center gap-2 text-[10px] font-bold text-amber-500/80 hover:text-amber-400 bg-amber-500/5 px-2 py-1 rounded-md transition-all border border-amber-500/10">
@@ -131,7 +163,7 @@ export function MessageItem({
                         <RectangleEllipsis className="w-3.5 h-3.5" />
                         <span>Try different query pattern</span>
                         <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
-                          {message.telemetry!.matched_templates!.length}
+                          {message.telemetry!.matchedTemplates!.length}
                         </span>
                       </div>
                       {showTemplates ? (
@@ -143,7 +175,7 @@ export function MessageItem({
 
                     {showTemplates && (
                       <div className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                        {message.telemetry!.matched_templates!.map((tpl) => (
+                        {message.telemetry!.matchedTemplates!.map((tpl) => (
                           <TemplateOption
                             key={tpl.template_id}
                             template={tpl}
@@ -165,7 +197,7 @@ export function MessageItem({
                 )}
 
                 {/* Collapsible SQL Query */}
-                {showSqlQuery && (message.telemetry.executedSql || message.telemetry.query_plan) && (
+                {showSqlQuery && (message.telemetry.executedSql || message.telemetry.queryPlan) && (
                   <div className="w-full mt-2 animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="relative group/sql">
                       <div className="flex items-center justify-between mb-2">
@@ -175,7 +207,7 @@ export function MessageItem({
                         </span>
                         <button
                           onClick={() => onCopy(
-                            message.telemetry!.executedSql || message.telemetry!.query_plan!,
+                            message.telemetry!.executedSql || message.telemetry!.queryPlan!,
                             `sql-${message.id}`
                           )}
                           className="p-1.5 rounded-md hover:bg-app-bg/40 text-app-subtext hover:text-app-accent transition-all opacity-0 group-hover/sql:opacity-100">
@@ -188,7 +220,7 @@ export function MessageItem({
                       </div>
                       <div className="rounded-xl bg-app-card border border-amber-500/20 overflow-hidden">
                         <pre className="p-3 text-[11px] font-mono text-amber-100/90 whitespace-pre-wrap break-words bg-amber-950/30">
-                          {message.telemetry.executedSql || message.telemetry.query_plan}
+                          {message.telemetry.executedSql || message.telemetry.queryPlan}
                         </pre>
                       </div>
                     </div>

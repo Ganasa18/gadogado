@@ -32,6 +32,7 @@ import {
 } from "../features/model-distillation";
 import TableSetupPage from "../features/settings/pages/TableSetupPage";
 import RagSettingsTab from "../features/settings/pages/RagSettingsTab";
+import Base64ImageTab from "../features/base64-image";
 
 export const router = createBrowserRouter([
   {
@@ -130,6 +131,10 @@ export const router = createBrowserRouter([
       {
         path: "diff-checker",
         element: <DiffCheckerPage />,
+      },
+      {
+        path: "base64-image",
+        element: <Base64ImageTab />,
       },
       {
         path: "tutorial",

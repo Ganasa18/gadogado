@@ -129,6 +129,10 @@ pub async fn db_query_rag_with_template_impl(
         extracted_params: std::collections::HashMap::new(),
         modified_where_clause: None,
         detected_table: None,
+        related_table: None,
+        foreign_key_column: None,
+        main_table_columns: None,
+        related_table_columns: None,
         confidence: 1.0,
         reasoning: "User-selected template".to_string(),
     });
@@ -264,6 +268,8 @@ pub async fn db_query_rag_with_template_impl(
             }]),
             column_mappings: None,
             modified_where_clause: None,
+            enriched_query: None,
+            detected_intent: None,
         },
         plan: Some(serde_json::to_value(&plan).unwrap_or_default()),
     })

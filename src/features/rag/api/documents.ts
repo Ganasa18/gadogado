@@ -48,3 +48,11 @@ export async function importRagWeb(
     },
   });
 }
+
+export async function getCollectionDocumentType(
+  collectionId: number,
+): Promise<string | null> {
+  return await invoke<string | null>("rag_get_collection_document_type", {
+    collectionId,
+  });
+}

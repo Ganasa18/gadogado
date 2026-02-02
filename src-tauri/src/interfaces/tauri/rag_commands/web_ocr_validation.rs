@@ -50,6 +50,29 @@ pub async fn rag_import_web(
             add_log(&state.logs, "WARN", "RAG", &err_msg);
             return Err(crate::domain::error::AppError::ValidationError(err_msg));
         }
+
+        // DOCUMENT TYPE VALIDATION: Enforce 1 collection = 1 document type
+        // Web imports can only go to collections with "web" type documents
+        if let Ok(Some(existing_type)) = state.rag_repository.get_collection_document_type(coll_id).await {
+            let existing_type_normalized = existing_type.to_lowercase();
+            if existing_type_normalized != "web" {
+                let type_name = match existing_type_normalized.as_str() {
+                    "pdf" => "PDF",
+                    "docx" => "Word (DOCX)",
+                    "xlsx" => "Excel (XLSX)",
+                    "csv" => "CSV",
+                    "txt" => "Text",
+                    "md" => "Markdown",
+                    _ => &existing_type_normalized,
+                };
+                let err_msg = format!(
+                    "Collection '{}' already contains {} documents. Cannot add web content to this collection. Please create a new collection for web content.",
+                    collection.name, type_name
+                );
+                add_log(&state.logs, "WARN", "RAG", &err_msg);
+                return Err(crate::domain::error::AppError::ValidationError(err_msg));
+            }
+        }
     }
 
     let start = Instant::now();

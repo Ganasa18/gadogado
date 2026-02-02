@@ -1,4 +1,5 @@
 use actix_web::dev::ServerHandle;
+use actix_cors::Cors;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,32 @@ impl Default for MockServerConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ResponseStrategy {
+    #[default]
+    Single,
+    Multi,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MultiResponseMatchMode {
+    #[default]
+    Exact,
+    #[serde(rename = "keymatch", alias = "key_match")]
+    KeyMatch,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PayloadResponseMapping {
+    pub id: String,
+    pub name: String,
+    pub payload: String,
+    #[serde(default)]
+    pub response: MockResponse,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MockRoute {
@@ -41,7 +68,13 @@ pub struct MockRoute {
     #[serde(default)]
     pub matchers: MockRouteMatchers,
     #[serde(default)]
+    pub response_strategy: ResponseStrategy,
+    #[serde(default)]
+    pub multi_response_match_mode: MultiResponseMatchMode,
+    #[serde(default)]
     pub response: MockResponse,
+    #[serde(default)]
+    pub multi_responses: Vec<PayloadResponseMapping>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,6 +343,15 @@ pub async fn start_mock_server(state: Arc<MockServerState>) -> Result<()> {
     let server_state = state.clone();
     let server = HttpServer::new(move || {
         App::new()
+            .wrap(
+                Cors::default()
+                    // Mock server is typically consumed by browsers/tools during local dev.
+                    // Allow any origin so requests from localhost:4200, etc. work out of the box.
+                    .allow_any_origin()
+                    .allow_any_method()
+                    .allow_any_header()
+                    .max_age(3600),
+            )
             .app_data(web::Data::new(server_state.clone()))
             .default_service(web::route().to(handle_mock_request))
     })
@@ -409,11 +451,12 @@ async fn handle_mock_request(
         .cloned()
         .collect();
 
+    // Step 1: Find best route match by method + path + query + headers (NO body check)
     for route in enabled_routes.iter() {
         if !method_matches(route, &method) || !path_matches(route, &path) {
             continue;
         }
-        if let Some(score) = calculate_match_score(route, &query_map, &headers_map, &body_text) {
+        if let Some(score) = calculate_route_score(route, &query_map, &headers_map) {
             if let Some((_, best_score)) = best_match.as_ref() {
                 if score > *best_score {
                     best_match = Some((route.clone(), score));
@@ -425,7 +468,71 @@ async fn handle_mock_request(
     }
 
     if let Some((route, _score)) = best_match {
-        if let Some(delay_ms) = route.response.delay_ms {
+        // Step 2: Validate body based on response strategy
+        // Body mismatch → 400 (route found but payload wrong)
+        let response = match route.response_strategy {
+            ResponseStrategy::Single => {
+                // Validate body against matchers if configured
+                if let Some(body_match) = &route.matchers.body {
+                    if !match_body(body_match, &body_text) {
+                        add_log(
+                            &data.logs,
+                            "WARN",
+                            "MockServer",
+                            &format!(
+                                "Route matched but body validation failed (route={})",
+                                route.name
+                            ),
+                        );
+                        return HttpResponse::BadRequest().json(serde_json::json!({
+                            "error": "Body validation failed",
+                            "route": route.name,
+                            "received_body": body_text
+                        }));
+                    }
+                }
+                &route.response
+            }
+            ResponseStrategy::Multi => {
+                match find_matching_response(&route, &body_text, route.multi_response_match_mode) {
+                    Some(resp) => resp,
+                    None => {
+                        // KeyMatch: if no mapping matches, fall back to the default route response.
+                        // Exact: strict; missing mapping is a 400.
+                        if route.multi_response_match_mode == MultiResponseMatchMode::KeyMatch {
+                            add_log(
+                                &data.logs,
+                                "INFO",
+                                "MockServer",
+                                &format!(
+                                    "Multi-response KeyMatch fallback to default response (route={})",
+                                    route.name
+                                ),
+                            );
+                            &route.response
+                        } else {
+                            add_log(
+                                &data.logs,
+                                "WARN",
+                                "MockServer",
+                                &format!(
+                                    "Multi-response route matched but no payload match found (route={}, mode={:?})",
+                                    route.name, route.multi_response_match_mode
+                                ),
+                            );
+                            return HttpResponse::BadRequest().json(serde_json::json!({
+                                "error": "No matching payload found for this route",
+                                "route": route.name,
+                                "match_mode": format!("{:?}", route.multi_response_match_mode),
+                                "received_body": body_text
+                            }));
+                        }
+                    }
+                }
+            }
+        };
+
+        if let Some(delay_ms) = response.delay_ms {
             if delay_ms > 0 {
                 sleep(std::time::Duration::from_millis(delay_ms)).await;
             }
@@ -441,34 +548,33 @@ async fn handle_mock_request(
             ),
         );
 
-        let mut response = HttpResponse::build(
-            actix_web::http::StatusCode::from_u16(route.response.status)
+        let mut http_response = HttpResponse::build(
+            actix_web::http::StatusCode::from_u16(response.status)
                 .unwrap_or(actix_web::http::StatusCode::OK),
         );
-        let has_content_type = route
-            .response
+        let has_content_type = response
             .headers
             .iter()
             .filter(|header| header.enabled)
             .any(|header| header.key.eq_ignore_ascii_case("content-type"));
 
-        for header in route.response.headers.iter().filter(|item| item.enabled) {
+        for header in response.headers.iter().filter(|item| item.enabled) {
             if !header.key.trim().is_empty() {
-                response.append_header((header.key.clone(), header.value.clone()));
+                http_response.append_header((header.key.clone(), header.value.clone()));
             }
         }
 
         if !has_content_type {
-            if route.response.body.trim_start().starts_with('{')
-                || route.response.body.trim_start().starts_with('[')
+            if response.body.trim_start().starts_with('{')
+                || response.body.trim_start().starts_with('[')
             {
-                response.append_header(("Content-Type", "application/json"));
+                http_response.append_header(("Content-Type", "application/json"));
             } else {
-                response.append_header(("Content-Type", "text/plain"));
+                http_response.append_header(("Content-Type", "text/plain"));
             }
         }
 
-        return response.body(route.response.body);
+        return http_response.body(response.body.clone());
     }
 
     add_log(
@@ -512,11 +618,12 @@ fn normalize_path(path: &str) -> String {
     trimmed.trim_end_matches('/').to_string()
 }
 
-fn calculate_match_score(
+/// Calculate route match score based on query params and headers only (no body).
+/// Body validation is done separately after route selection to distinguish 400 vs 404.
+fn calculate_route_score(
     route: &MockRoute,
     query_map: &HashMap<String, String>,
     header_map: &HashMap<String, String>,
-    body_text: &str,
 ) -> Option<i32> {
     let mut score = 0;
 
@@ -531,13 +638,6 @@ fn calculate_match_score(
     let header_enabled = route.matchers.headers.iter().any(|rule| rule.enabled);
     if header_enabled {
         if !match_key_values(&route.matchers.headers, header_map) {
-            return None;
-        }
-        score += 1;
-    }
-
-    if let Some(body_match) = &route.matchers.body {
-        if !match_body(body_match, body_text) {
             return None;
         }
         score += 1;
@@ -858,4 +958,68 @@ fn parse_headers(req: &HttpRequest) -> HashMap<String, String> {
                 .map(|value| (key.to_string().to_lowercase(), value.to_string()))
         })
         .collect()
+}
+
+/// Find the matching response for multi-response mode
+fn find_matching_response<'a>(route: &'a MockRoute, body_text: &str, match_mode: MultiResponseMatchMode) -> Option<&'a MockResponse> {
+    match match_mode {
+        MultiResponseMatchMode::Exact => {
+            // Exact payload matching (original behavior)
+            for mapping in &route.multi_responses {
+                if match_payload_exact(&mapping.payload, body_text) {
+                    return Some(&mapping.response);
+                }
+            }
+            None
+        }
+        MultiResponseMatchMode::KeyMatch => {
+            // Key-based matching: find mapping with matching keys
+            find_matching_response_by_keys(route, body_text)
+        }
+    }
+}
+
+/// Find matching response based on JSON keys
+/// Extracts keys from request body and finds first mapping with matching keys
+fn find_matching_response_by_keys<'a>(route: &'a MockRoute, body_text: &str) -> Option<&'a MockResponse> {
+    // Parse the request body to get its keys
+    let request_json = parse_json_with_comments(body_text.trim())?;
+    let request_keys = get_json_keys(&request_json);
+
+    // Find first mapping where keys match
+    for mapping in &route.multi_responses {
+        let mapping_json = parse_json_with_comments(mapping.payload.trim())?;
+        let mapping_keys = get_json_keys(&mapping_json);
+
+        // Check if keys match (exact match)
+        if request_keys == mapping_keys {
+            return Some(&mapping.response);
+        }
+    }
+    None
+}
+
+/// Extract top-level keys from a JSON value
+fn get_json_keys(json: &JsonValue) -> Vec<String> {
+    match json {
+        JsonValue::Object(map) => {
+            let mut keys: Vec<String> = map.keys().cloned().collect();
+            keys.sort(); // Sort for consistent comparison
+            keys
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Exact JSON payload matching (ignoring whitespace)
+fn match_payload_exact(expected: &str, actual: &str) -> bool {
+    // Parse both as JSON to normalize whitespace
+    let expected_json = parse_json_with_comments(expected.trim());
+    let actual_json = parse_json_with_comments(actual.trim());
+
+    match (expected_json, actual_json) {
+        (Some(exp), Some(act)) => exp == act,
+        (None, None) => expected.trim() == actual.trim(),
+        _ => false,
+    }
 }

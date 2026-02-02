@@ -64,6 +64,7 @@ macro_rules! tauri_invoke_handler {
             crate::interfaces::tauri::rag_commands::documents::rag_delete_document,
             crate::interfaces::tauri::rag_commands::documents::rag_list_documents,
             crate::interfaces::tauri::rag_commands::documents::rag_import_file,
+            crate::interfaces::tauri::rag_commands::documents::rag_get_collection_document_type,
             crate::interfaces::tauri::rag_commands::chunks::rag_list_chunks,
             crate::interfaces::tauri::rag_commands::chunks::rag_list_excel_data,
             crate::interfaces::tauri::rag_commands::search_chat::rag_hybrid_search,
@@ -222,6 +223,9 @@ macro_rules! tauri_invoke_handler {
             crate::interfaces::tauri::rag_commands::query_templates::db_update_query_template,
             crate::interfaces::tauri::rag_commands::query_templates::db_delete_query_template,
             crate::interfaces::tauri::rag_commands::query_templates::db_toggle_query_template,
+            crate::interfaces::tauri::rag_commands::query_templates::db_import_query_templates_from_sql_file,
+            crate::interfaces::tauri::rag_commands::query_templates::db_preview_query_templates_import_from_sql_file,
+            crate::interfaces::tauri::rag_commands::query_templates::db_import_query_templates_from_preview,
             crate::interfaces::tauri::rag_commands::audit_rate_limit::db_get_audit_recent,
             crate::interfaces::tauri::rag_commands::audit_rate_limit::db_get_rate_limit_status
         ]

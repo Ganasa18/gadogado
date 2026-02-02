@@ -1,5 +1,25 @@
-import { useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCenter,
+  pointerWithin,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   X,
   Save,
@@ -10,6 +30,7 @@ import {
   Zap,
   AlertCircle,
   Plus,
+  GripVertical,
 } from "lucide-react";
 import { cn } from "../../../utils/cn";
 import type {
@@ -17,7 +38,6 @@ import type {
   QueryTemplateInput,
   QueryPatternType,
 } from "../../rag/types";
-
 // Logging utility for debugging
 const add_log = (category: string, message: string, data?: unknown) => {
   const timestamp = new Date().toISOString();
@@ -69,6 +89,18 @@ const PATTERN_TYPES: {
     icon: "Σ",
   },
   {
+    value: "select_where_between",
+    label: "BETWEEN",
+    description: "Date/value range filter",
+    icon: "↔",
+  },
+  {
+    value: "select_where_like",
+    label: "LIKE",
+    description: "Text pattern search",
+    icon: "≈",
+  },
+  {
     value: "custom",
     label: "Custom",
     description: "Custom query pattern",
@@ -81,13 +113,132 @@ const PLACEHOLDER_HINTS = [
   { placeholder: "{table}", description: "Table name" },
   { placeholder: "{id}", description: "Single ID value" },
   { placeholder: "{id_list}", description: "Multiple IDs for IN clause" },
+  { placeholder: "{id_column}", description: "ID column name" },
   { placeholder: "{date_start}", description: "Start date for BETWEEN" },
   { placeholder: "{date_end}", description: "End date for BETWEEN" },
   { placeholder: "{search_term}", description: "Search text for LIKE" },
+  { placeholder: "{filter_column}", description: "Column name for filter" },
   { placeholder: "{order_by_column}", description: "Column for ORDER BY" },
   { placeholder: "{sort_direction}", description: "ASC or DESC" },
   { placeholder: "{group_by_column}", description: "Column for GROUP BY" },
+  { placeholder: "{numeric_column}", description: "Numeric column name" },
+  { placeholder: "{date_column}", description: "Date column name" },
+  { placeholder: "{related_table}", description: "Related/joined table name" },
+  {
+    placeholder: "{foreign_key_column}",
+    description: "Foreign key column for join",
+  },
+  {
+    placeholder: "{main_table_columns}",
+    description: "Columns from main table",
+  },
+  {
+    placeholder: "{related_table_columns}",
+    description: "Columns from related table",
+  },
+  {
+    placeholder: "{filter_column_1}",
+    description: "First filter column for multi-condition WHERE",
+  },
+  {
+    placeholder: "{search_term_1}",
+    description: "First search value for multi-condition WHERE",
+  },
+  {
+    placeholder: "{filter_column_2}",
+    description: "Second filter column for multi-condition WHERE",
+  },
+  {
+    placeholder: "{search_term_2}",
+    description: "Second search value for multi-condition WHERE",
+  },
+  {
+    placeholder: "{text_column}",
+    description: "Text column for LIKE search",
+  },
 ];
+
+function SortableHintChip({
+  id,
+  label,
+  title,
+}: {
+  id: string;
+  label: string;
+  title?: string;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, data: { kind: "hint" } });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      title={title}
+      className={cn(
+        "group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/70 bg-app-card/40 hover:bg-app-card/60 text-[11px] font-mono text-app-subtext hover:text-app-text transition-colors select-none",
+        isDragging && "opacity-0 ring-2 ring-app-accent/30",
+      )}>
+      <span
+        className="-ml-2 inline-flex items-center text-app-subtext/60 group-hover:text-app-subtext cursor-grab active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder">
+        <GripVertical className="w-3 h-3" />
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function HintChipOverlay({ label }: { label: string }) {
+  return (
+    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/70 bg-app-panel text-[11px] font-mono text-app-text shadow-xl">
+      <GripVertical className="w-3 h-3 text-app-subtext/70" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function QueryPatternDropZone({
+  value,
+  onChange,
+  textareaRef,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  textareaRef: React.MutableRefObject<HTMLTextAreaElement | null>;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: "query-pattern-drop" });
+
+  return (
+    <div ref={setNodeRef} className="rounded-xl">
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="SELECT {columns} FROM {table} WHERE id IN ({id_list})"
+        rows={4}
+        className={cn(
+          "w-full bg-app-card border border-app-border rounded-xl px-4 py-3 text-sm text-app-text font-mono focus:ring-2 focus:ring-app-accent/50 focus:border-app-accent outline-none transition-all resize-none",
+          isOver && "ring-2 ring-app-accent/30 border-app-accent/40",
+        )}
+      />
+    </div>
+  );
+}
+
 
 export function QueryTemplateFormModal({
   isOpen,
@@ -103,6 +254,7 @@ export function QueryTemplateFormModal({
   const [keywordInput, setKeywordInput] = useState("");
   const [exampleQuestion, setExampleQuestion] = useState("");
   const [queryPattern, setQueryPattern] = useState("");
+  const queryPatternRef = useRef<HTMLTextAreaElement | null>(null);
   const [patternType, setPatternType] =
     useState<QueryPatternType>("select_where_eq");
   const [tablesUsed, setTablesUsed] = useState<string[]>([]);
@@ -110,6 +262,66 @@ export function QueryTemplateFormModal({
   const [isPatternAgnostic, setIsPatternAgnostic] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [hintOrder, setHintOrder] = useState<string[]>(() =>
+    PLACEHOLDER_HINTS.map((h) => h.placeholder),
+  );
+  const [hintSearch, setHintSearch] = useState("");
+  const [activeDragLabel, setActiveDragLabel] = useState<string | null>(null);
+
+  const hintByPlaceholder = useMemo(() => {
+    const map = new Map<string, (typeof PLACEHOLDER_HINTS)[number]>();
+    for (const h of PLACEHOLDER_HINTS) map.set(h.placeholder, h);
+    return map;
+  }, []);
+
+  const orderedHints = useMemo(() => {
+    const seen = new Set<string>();
+    const fromOrder = hintOrder
+      .map((ph) => hintByPlaceholder.get(ph))
+      .filter((h): h is (typeof PLACEHOLDER_HINTS)[number] => Boolean(h))
+      .filter((h) => {
+        if (seen.has(h.placeholder)) return false;
+        seen.add(h.placeholder);
+        return true;
+      });
+    const missing = PLACEHOLDER_HINTS.filter((h) => !seen.has(h.placeholder));
+    return [...fromOrder, ...missing];
+  }, [hintOrder, hintByPlaceholder]);
+
+  const visibleHints = useMemo(() => {
+    const q = hintSearch.trim().toLowerCase();
+    if (!q) return orderedHints;
+    return orderedHints.filter((h) => {
+      return (
+        h.placeholder.toLowerCase().includes(q) ||
+        h.description.toLowerCase().includes(q)
+      );
+    });
+  }, [hintSearch, orderedHints]);
+
+  const visiblePlaceholders = useMemo(
+    () => visibleHints.map((h) => h.placeholder),
+    [visibleHints],
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+
+  const collisionDetection: CollisionDetection = (args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return closestCenter(args);
+  };
+
+  const handleHintDragStart = (event: DragStartEvent) => {
+    setActiveDragLabel(String(event.active.id));
+  };
+
+  const handleHintDragCancel = () => {
+    setActiveDragLabel(null);
+  };
 
   // Reset form when opened or template changes
   useEffect(() => {
@@ -139,6 +351,63 @@ export function QueryTemplateFormModal({
       setError(null);
     }
   }, [isOpen, template]);
+
+  // Keep hint order in sync if hints list changes.
+  useEffect(() => {
+    setHintOrder((prev) => {
+      const base = PLACEHOLDER_HINTS.map((h) => h.placeholder);
+      const next = prev.filter((ph) => base.includes(ph));
+      for (const ph of base) {
+        if (!next.includes(ph)) next.push(ph);
+      }
+      return next;
+    });
+  }, []);
+
+  const insertPlaceholderAtCaret = (placeholder: string) => {
+    const el = queryPatternRef.current;
+    if (!el) {
+      setQueryPattern((prev) => prev + placeholder);
+      return;
+    }
+
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const before = queryPattern.slice(0, start);
+    const after = queryPattern.slice(end);
+    const next = before + placeholder + after;
+    const nextCursor = start + placeholder.length;
+
+    setQueryPattern(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      try {
+        el.setSelectionRange(nextCursor, nextCursor);
+      } catch {
+        // ignore
+      }
+    });
+  };
+
+  const handleHintDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragLabel(null);
+    if (!over) return;
+
+    if (String(over.id) === "query-pattern-drop") {
+      insertPlaceholderAtCaret(String(active.id));
+      return;
+    }
+
+    if (active.id === over.id) return;
+
+    setHintOrder((prev) => {
+      const oldIndex = prev.indexOf(String(active.id));
+      const newIndex = prev.indexOf(String(over.id));
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  };
 
   const handleAddKeyword = () => {
     const trimmed = keywordInput.trim().toLowerCase();
@@ -206,7 +475,7 @@ export function QueryTemplateFormModal({
       tables_used: tablesUsed,
       priority,
       is_pattern_agnostic: isPatternAgnostic,
-    };
+    } as QueryTemplateInput;
     add_log("QueryTemplateForm", "handleSubmit: Calling onSave", {
       input: templateInput,
     });
@@ -404,27 +673,63 @@ export function QueryTemplateFormModal({
                 <Code className="w-3 h-3 inline mr-1" />
                 Query Pattern *
               </label>
-              <textarea
-                value={queryPattern}
-                onChange={(e) => setQueryPattern(e.target.value)}
-                placeholder="SELECT {columns} FROM {table} WHERE id IN ({id_list})"
-                rows={4}
-                className="w-full bg-app-card border border-app-border rounded-xl px-4 py-3 text-sm text-app-text font-mono focus:ring-2 focus:ring-app-accent/50 focus:border-app-accent outline-none transition-all resize-none"
-              />
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PLACEHOLDER_HINTS.map((hint) => (
-                  <button
-                    key={hint.placeholder}
-                    type="button"
-                    onClick={() =>
-                      setQueryPattern(queryPattern + hint.placeholder)
-                    }
-                    className="px-2 py-1 bg-app-border/30 hover:bg-app-border/50 rounded text-[10px] font-mono text-app-subtext hover:text-app-text transition-colors"
-                    title={hint.description}>
-                    {hint.placeholder}
-                  </button>
-                ))}
-              </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={collisionDetection}
+                onDragStart={handleHintDragStart}
+                onDragCancel={handleHintDragCancel}
+                onDragEnd={handleHintDragEnd}>
+                <QueryPatternDropZone
+                  value={queryPattern}
+                  onChange={setQueryPattern}
+                  textareaRef={queryPatternRef}
+                />
+
+                <DragOverlay>
+                  {activeDragLabel ? (
+                    <HintChipOverlay label={activeDragLabel} />
+                  ) : null}
+                </DragOverlay>
+
+                {/* Query Hints (pill labels + drag/drop into Query Pattern) */}
+                <div className="mt-3 p-3 bg-app-card/40 rounded-xl border border-app-border/60">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <p className="text-[10px] font-bold text-app-subtext uppercase tracking-wider">
+                      Query Hints
+                    </p>
+                    <div className="w-[280px] max-w-full">
+                      <input
+                        value={hintSearch}
+                        onChange={(e) => setHintSearch(e.target.value)}
+                        placeholder="Search hints..."
+                        className="w-full bg-app-card border border-app-border rounded-lg px-3 py-2 text-xs text-app-text font-mono focus:ring-2 focus:ring-app-accent/40 focus:border-app-accent outline-none transition-all"
+                        aria-label="Search query hints"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-app-subtext mb-2">
+                    Drag pills into Query Pattern. Drag handle to reorder.
+                  </p>
+
+                  <SortableContext
+                    items={visiblePlaceholders}
+                    strategy={horizontalListSortingStrategy}>
+                    <div className="max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                      <div className="flex flex-wrap gap-2">
+                        {visibleHints.map((hint) => (
+                        <SortableHintChip
+                          key={hint.placeholder}
+                          id={hint.placeholder}
+                          label={hint.placeholder}
+                          title={hint.description}
+                        />
+                      ))}
+                      </div>
+                    </div>
+                  </SortableContext>
+                </div>
+              </DndContext>
 
               {/* Examples for ORDER BY and GROUP BY */}
               <div className="mt-3 p-3 bg-app-card/50 rounded-xl border border-app-border/50">

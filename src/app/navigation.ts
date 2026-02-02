@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   GitCompare,
   DatabaseIcon,
+  Image as ImageIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -101,6 +102,12 @@ export const NAV_SECTIONS: NavSection[] = [
         path: "/mock-server",
         label: "Mock Server",
         icon: Server,
+        section: "Workspace",
+      },
+      {
+        path: "/base64-image",
+        label: "Base64 Image",
+        icon: ImageIcon,
         section: "Workspace",
       },
     ],

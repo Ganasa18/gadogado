@@ -14,6 +14,7 @@ pub mod enhance;
 pub mod few_shot_prompt_builder;
 pub mod prompt_engine;
 pub mod qa_ai;
+pub mod query_intent_enricher;
 pub mod qa_api_call;
 pub mod qa_event;
 pub mod qa_run;

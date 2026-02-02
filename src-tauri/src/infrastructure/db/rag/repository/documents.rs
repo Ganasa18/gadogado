@@ -73,4 +73,21 @@ impl RagRepository {
             Ok(documents.into_iter().map(|d| d.into()).collect())
         }
     }
+
+    /// Get the document type of the first document in a collection.
+    /// Returns None if collection is empty, Some(file_type) if documents exist.
+    pub async fn get_collection_document_type(
+        &self,
+        collection_id: i64,
+    ) -> Result<Option<String>> {
+        let result = sqlx::query_as::<_, (String,)>(
+            "SELECT file_type FROM documents WHERE collection_id = ? LIMIT 1",
+        )
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to get collection document type: {}", e)))?;
+
+        Ok(result.map(|(file_type,)| file_type))
+    }
 }

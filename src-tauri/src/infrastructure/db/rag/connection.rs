@@ -332,7 +332,7 @@ async fn init_default_allowlist_profile(pool: &SqlitePool) -> Result<(), String>
     Ok(())
 }
 
-fn trim_leading_ws_and_comments(s: &str) -> &str {
+pub(crate) fn trim_leading_ws_and_comments(s: &str) -> &str {
     // Remove leading whitespace and SQL line comments so we can reliably detect
     // statements that start with comments (common in schema.sql).
     let mut rest = s;
@@ -366,7 +366,7 @@ fn trim_leading_ws_and_comments(s: &str) -> &str {
     }
 }
 
-fn split_sql_statements(sql: &str) -> Vec<String> {
+pub(crate) fn split_sql_statements(sql: &str) -> Vec<String> {
     // Statement splitter that keeps CREATE TRIGGER ... BEGIN ... END; intact.
     // It also ignores semicolons inside quotes and comments.
     let mut out = Vec::new();

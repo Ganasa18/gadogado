@@ -12,6 +12,23 @@ import { Switch } from "../../../shared/components/Switch";
 import { cn } from "../../../utils/cn";
 import { useToastStore } from "../../../store/toast";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 export default function MenuManagementTab() {
   const {
@@ -23,9 +40,12 @@ export default function MenuManagementTab() {
     resetNavSettings,
   } = useSettingsStore();
   const { addToast } = useToastStore();
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [draggingSectionId, setDraggingSectionId] = useState<string | null>(
-    null,
+  
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
   );
 
   // Helper to get items for a section, sorted by order
@@ -45,40 +65,42 @@ export default function MenuManagementTab() {
     return orderA - orderB;
   });
 
-  const handleItemReorder = (
-    srcPath: string,
-    destPath: string,
-    sectionId: string,
-  ) => {
-    const items = getSectionItems(sectionId);
-    const fromIndex = items.findIndex((i) => i.path === srcPath);
-    const toIndex = items.findIndex((i) => i.path === destPath);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
 
-    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+    // Check if we are dragging a section or an item
+    const activeId = active.id as string;
+    const overId = over.id as string;
 
-    const newItems = [...items];
-    const [moved] = newItems.splice(fromIndex, 1);
-    newItems.splice(toIndex, 0, moved);
+    // Section reordering
+    if (NAV_SECTIONS.some(s => s.id === activeId)) {
+      const oldIndex = visibleSections.findIndex((s) => s.id === activeId);
+      const newIndex = visibleSections.findIndex((s) => s.id === overId);
+      
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newSections = arrayMove(visibleSections, oldIndex, newIndex);
+        newSections.forEach((sec, index) => {
+          setSectionOrder(sec.id, index);
+        });
+      }
+    } else {
+      // Item reordering - activeId and overId are paths
+      // Find which section this item belongs to
+      const section = NAV_SECTIONS.find(s => s.items.some(i => i.path === activeId));
+      if (!section) return;
 
-    newItems.forEach((item, index) => {
-      setNavOrder(item.path, index);
-    });
-  };
+      const items = getSectionItems(section.id);
+      const oldIndex = items.findIndex((i) => i.path === activeId);
+      const newIndex = items.findIndex((i) => i.path === overId);
 
-  const handleSectionReorder = (srcId: string, destId: string) => {
-    if (srcId === destId) return;
-    const sections = [...visibleSections];
-    const fromIndex = sections.findIndex((s) => s.id === srcId);
-    const toIndex = sections.findIndex((s) => s.id === destId);
-
-    if (fromIndex === -1 || toIndex === -1) return;
-
-    const [moved] = sections.splice(fromIndex, 1);
-    sections.splice(toIndex, 0, moved);
-
-    sections.forEach((sec, index) => {
-      setSectionOrder(sec.id, index);
-    });
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        newItems.forEach((item, index) => {
+          setNavOrder(item.path, index);
+        });
+      }
+    }
   };
 
   // Divide into visually balanced columns based on current sort order
@@ -117,125 +139,88 @@ export default function MenuManagementTab() {
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-6 max-w-6xl mx-auto items-start">
-          {/* Since we can't easily drag between CSS grid columns for reordering sections intuitively without a library,
-                   we will render two separate columns but handle drag over logic carefully or just assume reordering is mostly vertical.
-                   However, the user wants "Workspace"-like reordering.
-                   Dragging a section from Right to Left column is complex with pure HTML5 Drag and Drop without unified list.
-                   
-                   Workaround: Render all in one list for drag logic simplicity, but CSS Grid makes it look like 2 columns.
-                   But vertical reordering in CSS grid (masonry) is hard.
-                   
-                   Compromise: Reorder visual columns.
-                */}
-          <div className="space-y-6">
-            {leftCol.map((section) => (
-              <SectionCard
-                key={section.id}
-                section={section}
-                items={getSectionItems(section.id)}
-                navSettings={navSettings}
-                toggleVis={toggleNavVisibility}
-                onReorderItem={(src, dest) =>
-                  handleItemReorder(src, dest, section.id)
-                }
-                onReorderSection={handleSectionReorder}
-                draggingId={draggingId}
-                setDraggingId={setDraggingId}
-                draggingSectionId={draggingSectionId}
-                setDraggingSectionId={setDraggingSectionId}
-              />
-            ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-6 max-w-6xl mx-auto items-start">
+            <SortableContext
+              items={visibleSections.map(s => s.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-6">
+                {leftCol.map((section) => (
+                  <SortableSection
+                    key={section.id}
+                    section={section}
+                    items={getSectionItems(section.id)}
+                    navSettings={navSettings}
+                    toggleVis={toggleNavVisibility}
+                  />
+                ))}
+              </div>
+              <div className="space-y-6">
+                {rightCol.map((section) => (
+                  <SortableSection
+                    key={section.id}
+                    section={section}
+                    items={getSectionItems(section.id)}
+                    navSettings={navSettings}
+                    toggleVis={toggleNavVisibility}
+                  />
+                ))}
+              </div>
+            </SortableContext>
           </div>
-          <div className="space-y-6">
-            {rightCol.map((section) => (
-              <SectionCard
-                key={section.id}
-                section={section}
-                items={getSectionItems(section.id)}
-                navSettings={navSettings}
-                toggleVis={toggleNavVisibility}
-                onReorderItem={(src, dest) =>
-                  handleItemReorder(src, dest, section.id)
-                }
-                onReorderSection={handleSectionReorder}
-                draggingId={draggingId}
-                setDraggingId={setDraggingId}
-                draggingSectionId={draggingSectionId}
-                setDraggingSectionId={setDraggingSectionId}
-              />
-            ))}
-          </div>
-        </div>
+        </DndContext>
       </div>
     </div>
   );
 }
 
-function SectionCard({
+function SortableSection({
   section,
   items,
   navSettings,
   toggleVis,
-  onReorderItem,
-  onReorderSection,
-  draggingId,
-  setDraggingId,
-  draggingSectionId,
-  setDraggingSectionId,
 }: {
   section: NavSection;
   items: NavItem[];
   navSettings: Record<string, { visible: boolean; order: number }>;
   toggleVis: (path: string) => void;
-  onReorderItem: (src: string, dest: string) => void;
-  onReorderSection: (src: string, dest: string) => void;
-  draggingId: string | null;
-  setDraggingId: (id: string | null) => void;
-  draggingSectionId: string | null;
-  setDraggingSectionId: (id: string | null) => void;
 }) {
-  // Default collapsed as requested
   const [collapsed, setCollapsed] = useState(true);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: section.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className={cn(
         "bg-app-card rounded-lg border border-app-border overflow-hidden shadow-sm transition-opacity",
-        draggingSectionId === section.id && "opacity-40",
+        isDragging && "opacity-40 z-50",
       )}
-      draggable
-      onDragStart={(e) => {
-        // Only start drag if not dragging an item
-        if (draggingId) {
-          e.preventDefault();
-          return;
-        }
-        setDraggingSectionId(section.id);
-        e.dataTransfer.effectAllowed = "move";
-        e.stopPropagation();
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        // If dragging a section and hovering over another section
-        if (draggingSectionId && draggingSectionId !== section.id) {
-          e.dataTransfer.dropEffect = "move";
-        }
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (draggingSectionId && draggingSectionId !== section.id) {
-          onReorderSection(draggingSectionId, section.id);
-        }
-        setDraggingSectionId(null);
-      }}
-      onDragEnd={() => setDraggingSectionId(null)}>
+    >
       <div
         className="flex items-center justify-between px-4 py-3 bg-app-card/50 border-b border-app-border/50 cursor-pointer hover:bg-app-panel/50 transition-colors select-none group"
         onClick={() => setCollapsed(!collapsed)}>
         <div className="flex items-center gap-3">
           <div
+            {...attributes}
+            {...listeners}
             className={cn(
               "text-app-subtext/30 group-hover:text-app-subtext p-0.5 rounded transition-colors cursor-grab active:cursor-grabbing",
             )}>
@@ -272,101 +257,19 @@ function SectionCard({
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}>
             <div className="divide-y divide-app-border/30">
-              {items.map((item) => {
-                const visible = navSettings[item.path]?.visible ?? true;
-                const Icon = item.icon;
-                const isDragging = draggingId === item.path;
-                const isMandatory =
-                  item.path === "/general" || item.path === "/menu-management";
-
-                return (
-                  <div
+              <SortableContext
+                items={items.map(i => i.path)}
+                strategy={verticalListSortingStrategy}
+              >
+                {items.map((item) => (
+                  <SortableItem
                     key={item.path}
-                    draggable={!isMandatory}
-                    onDragStart={(e) => {
-                      if (isMandatory) return;
-                      setDraggingId(item.path);
-                      e.dataTransfer.effectAllowed = "move";
-                      e.stopPropagation();
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (
-                        draggingId &&
-                        draggingId !== item.path &&
-                        !isMandatory
-                      ) {
-                        e.dataTransfer.dropEffect = "move";
-                      }
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (
-                        draggingId &&
-                        draggingId !== item.path &&
-                        !isMandatory
-                      ) {
-                        onReorderItem(draggingId, item.path);
-                      }
-                      setDraggingId(null);
-                    }}
-                    onDragEnd={(e) => {
-                      e.stopPropagation();
-                      setDraggingId(null);
-                    }}
-                    className={cn(
-                      "flex items-center justify-between px-4 py-3 hover:bg-app-panel/30 transition-colors group/item relative",
-                      isDragging && "opacity-30 bg-app-panel",
-                      isMandatory && "opacity-80",
-                    )}>
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={cn(
-                          "text-app-subtext/30 group-hover/item:text-app-subtext p-0.5 rounded transition-colors",
-                          isMandatory
-                            ? "cursor-not-allowed opacity-50"
-                            : "cursor-grab active:cursor-grabbing hover:bg-app-panel",
-                        )}>
-                        <GripVertical className="w-4 h-4" />
-                      </div>
-                      <div
-                        className={cn(
-                          "p-1.5 rounded transition-colors",
-                          visible
-                            ? "bg-app-accent/10 text-app-accent"
-                            : "bg-app-panel text-app-subtext",
-                        )}>
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <span
-                        className={cn(
-                          "text-sm font-medium transition-opacity",
-                          !visible && "text-app-subtext/60 line-through",
-                        )}>
-                        {item.label}
-                        {isMandatory && (
-                          <span className="ml-2 text-[9px] uppercase tracking-wider text-app-subtext/60 border border-app-border px-1 rounded">
-                            Required
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <Switch
-                      checked={visible}
-                      onCheckedChange={() => {
-                        if (isMandatory) {
-                          // Prevent toggling visibility for mandatory items
-                          return;
-                        }
-                        toggleVis(item.path);
-                      }}
-                      disabled={isMandatory}
-                    />
-                  </div>
-                );
-              })}
+                    item={item}
+                    visible={navSettings[item.path]?.visible ?? true}
+                    toggleVis={toggleVis}
+                  />
+                ))}
+              </SortableContext>
             </div>
           </motion.div>
         )}
@@ -374,3 +277,89 @@ function SectionCard({
     </div>
   );
 }
+
+function SortableItem({
+  item,
+  visible,
+  toggleVis,
+}: {
+  item: NavItem;
+  visible: boolean;
+  toggleVis: (path: string) => void;
+}) {
+  const isMandatory = item.path === "/general" || item.path === "/menu-management";
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: item.path,
+    disabled: isMandatory
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const Icon = item.icon;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center justify-between px-4 py-3 hover:bg-app-panel/30 transition-colors group/item relative",
+        isDragging && "opacity-30 bg-app-panel z-50",
+        isMandatory && "opacity-80",
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          {...attributes}
+          {...listeners}
+          className={cn(
+            "text-app-subtext/30 group-hover/item:text-app-subtext p-0.5 rounded transition-colors",
+            isMandatory
+              ? "cursor-not-allowed opacity-50"
+              : "cursor-grab active:cursor-grabbing hover:bg-app-panel",
+          )}>
+          <GripVertical className="w-4 h-4" />
+        </div>
+        <div
+          className={cn(
+            "p-1.5 rounded transition-colors",
+            visible
+              ? "bg-app-accent/10 text-app-accent"
+              : "bg-app-panel text-app-subtext",
+          )}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <span
+          className={cn(
+            "text-sm font-medium transition-opacity",
+            !visible && "text-app-subtext/60 line-through",
+          )}>
+          {item.label}
+          {isMandatory && (
+            <span className="ml-2 text-[9px] uppercase tracking-wider text-app-subtext/60 border border-app-border px-1 rounded">
+              Required
+            </span>
+          )}
+        </span>
+      </div>
+      <Switch
+        checked={visible}
+        onCheckedChange={() => {
+          if (isMandatory) return;
+          toggleVis(item.path);
+        }}
+        disabled={isMandatory}
+      />
+    </div>
+  );
+}
+

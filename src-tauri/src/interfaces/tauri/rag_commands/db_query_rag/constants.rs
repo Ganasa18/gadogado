@@ -31,7 +31,7 @@ pub const SEMANTIC_LLM_TIMEOUT_SECS: u64 = 15;
 pub const NL_RESPONSE_TIMEOUT_SECS: u64 = 30;
 
 /// Minimum score threshold for using template-first approach
-pub const TEMPLATE_MATCH_THRESHOLD: f32 = 0.5;
+pub const TEMPLATE_MATCH_THRESHOLD: f32 = 0.3;
 
 /// Maximum number of templates to show to user
 pub const MAX_TEMPLATES_FOR_USER: usize = 3;

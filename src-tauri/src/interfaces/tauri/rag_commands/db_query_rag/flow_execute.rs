@@ -306,6 +306,14 @@ pub async fn execute_and_build_response(
                 .llm_template_selection
                 .as_ref()
                 .and_then(|s| s.modified_where_clause.clone()),
+            enriched_query: resolved
+                .enriched_query
+                .as_ref()
+                .map(|e| e.rewritten_query.clone()),
+            detected_intent: resolved
+                .enriched_query
+                .as_ref()
+                .map(|e| e.detected_operation.clone()),
         },
         plan: Some(serde_json::to_value(&resolved.final_plan).unwrap_or_default()),
     })

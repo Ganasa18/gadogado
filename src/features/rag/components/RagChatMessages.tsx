@@ -4,26 +4,33 @@ import AnimatedContainer from "../../../shared/components/AnimatedContainer";
 import type { ChatMessage } from "../types";
 import { MessageItem } from "./MessageItem";
 
-export function RagChatMessages(props: {
+interface RagChatMessagesProps {
   messages: ChatMessage[];
   isLoadingHistory: boolean;
   isLoading: boolean;
   selectedCollectionId: number | null;
   onRegenerate: (query: string) => void;
-  /** Regenerate with a specific template (for DB collections) */
   onRegenerateWithTemplate?: (query: string, templateId: number) => void;
-}) {
-  const {
-    messages,
-    isLoadingHistory,
-    isLoading,
-    selectedCollectionId,
-    onRegenerate,
-    onRegenerateWithTemplate,
-  } = props;
+}
 
+export function RagChatMessages({
+  messages = [],
+  isLoadingHistory,
+  isLoading,
+  selectedCollectionId,
+  onRegenerate,
+  onRegenerateWithTemplate,
+}: RagChatMessagesProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [typedIds, setTypedIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Initialize typedIds with current messages when history is loaded to prevent re-animation
+  useEffect(() => {
+    if (!isLoadingHistory && messages.length > 0 && typedIds.size === 0) {
+      setTypedIds(new Set(messages.map((m) => m.id)));
+    }
+  }, [isLoadingHistory, messages, typedIds.size]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -33,6 +40,15 @@ export function RagChatMessages(props: {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     window.setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleTypewriterComplete = (id: string) => {
+    setTypedIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
   };
 
   if (isLoadingHistory) {
@@ -78,16 +94,18 @@ export function RagChatMessages(props: {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-4 scroll-smooth space-y-6">
+    <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 scroll-smooth space-y-6">
       <div className="max-w-5xl mx-auto space-y-6">
-        {messages.map((message) => (
+        {messages.map((message, index) => (
           <AnimatedContainer key={message.id} animation="slideUp" className="w-full">
             <MessageItem
               message={message}
+              isLatest={index === messages.length - 1 && !typedIds.has(message.id)}
               onRegenerate={onRegenerate}
               onRegenerateWithTemplate={onRegenerateWithTemplate}
               onCopy={handleCopy}
               copiedId={copiedId}
+              onTypewriterComplete={() => handleTypewriterComplete(message.id)}
             />
           </AnimatedContainer>
         ))}

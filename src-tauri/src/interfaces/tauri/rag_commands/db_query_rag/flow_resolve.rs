@@ -13,7 +13,8 @@ use super::helpers::validate_query_plan;
 use super::template_llm::{build_schema_context_for_llm, select_template_with_llm};
 use super::template_semantic::load_templates_with_semantic_matching;
 use super::template_sql::{build_sql_from_template, get_user_template_preference, hash_query};
-use super::super::types::{DbQueryRequest, LlmTemplateSelection};
+use super::super::types::{DbQueryRequest, EnrichedQuery, LlmTemplateSelection, QueryIntent};
+use crate::application::use_cases::query_intent_enricher;
 
 pub struct ResolvedQuery {
     pub sql_to_execute: String,
@@ -24,6 +25,8 @@ pub struct ResolvedQuery {
     pub selected_template_id: Option<i64>,
     pub selected_template_name: Option<String>,
     pub llm_template_selection: Option<LlmTemplateSelection>,
+    /// Enriched query from the intent enricher (for telemetry/debugging)
+    pub enriched_query: Option<EnrichedQuery>,
 }
 
 pub fn resolve_limit_from_request(
@@ -71,10 +74,31 @@ pub async fn resolve_sql_and_plan(
 
     let detected_tables = collection_config.selected_tables.clone();
     let llm_config = state.last_config.lock().unwrap().clone();
+
+    // =========================================================================
+    // STEP 1: Query Intent Enrichment (LLM-based, with silent fallback)
+    // Rewrites ambiguous queries to clarify intent before template matching.
+    // e.g., "tampilkan data user ada juga data korwil" → "tampilkan data user JOIN table_korwil"
+    // =========================================================================
+    let enriched = query_intent_enricher::enrich_query(
+        &state.llm_client,
+        &llm_config,
+        &request.query,
+        &conn_config.selected_columns,
+        &state.logs,
+    )
+    .await;
+
+    // Use the enriched (rewritten) query for template matching
+    let query_for_matching = &enriched.rewritten_query;
+
+    // =========================================================================
+    // STEP 2: Template Matching (uses enriched query)
+    // =========================================================================
     let matched_templates = load_templates_with_semantic_matching(
         &state.rag_repository,
         collection_config.allowlist_profile_id,
-        &request.query,
+        query_for_matching,
         &detected_tables,
         &state.llm_client,
         &llm_config,
@@ -86,7 +110,57 @@ pub async fn resolve_sql_and_plan(
     let mut selected_template_name: Option<String> = None;
     let mut llm_template_selection: Option<LlmTemplateSelection> = None;
 
+    // =========================================================================
+    // STEP 3: Intent Detection (uses enricher results + keyword fallback)
+    // =========================================================================
+    let has_join_intent = matches!(enriched.detected_intent, QueryIntent::JoinTables)
+        || {
+            // Fallback: keyword-based detection on BOTH original and rewritten query
+            let query_lower = query_for_matching.to_lowercase();
+            ["join", "gabung", "relasi", "beserta", "lookup"]
+                .iter()
+                .any(|kw| query_lower.contains(kw))
+                || (query_lower.contains("dengan") && matched_templates.iter().any(|tm| {
+                    tm.template.name.to_lowercase().contains("join")
+                }))
+        };
+
+    let has_join_template = matched_templates.iter().any(|tm| {
+        tm.template.name.to_lowercase().contains("join")
+    });
+
+    let has_date_intent = matches!(enriched.detected_intent, QueryIntent::DateFilter)
+        || {
+            let query_lower = query_for_matching.to_lowercase();
+            [
+                "hari", "terakhir", "recent", "latest", "today", "hari ini",
+                "minggu", "bulan", "tahun", "week", "month", "year",
+                "tanggal", "date", "terbaru", "baru",
+            ].iter().any(|kw| query_lower.contains(kw))
+        };
+
+    let has_date_template = matched_templates.iter().any(|tm| {
+        let name_lower = tm.template.name.to_lowercase();
+        name_lower.contains("recent") || name_lower.contains("date") || name_lower.contains("time series")
+    });
+
     let use_template_first = if preferred_template_id.is_some() {
+        true
+    } else if has_join_intent && has_join_template {
+        add_log(
+            &state.logs,
+            "DEBUG",
+            "SQL-RAG",
+            "Forcing TEMPLATE-FIRST: JOIN intent detected and JOIN template available",
+        );
+        true
+    } else if has_date_intent && has_date_template {
+        add_log(
+            &state.logs,
+            "DEBUG",
+            "SQL-RAG",
+            "Forcing TEMPLATE-FIRST: date/time intent detected and date template available",
+        );
         true
     } else {
         !matched_templates.is_empty() && matched_templates[0].score >= TEMPLATE_MATCH_THRESHOLD
@@ -142,6 +216,10 @@ pub async fn resolve_sql_and_plan(
                     extracted_params: std::collections::HashMap::new(),
                     modified_where_clause: None,
                     detected_table: None,
+                    related_table: None,
+                    foreign_key_column: None,
+                    main_table_columns: None,
+                    related_table_columns: None,
                     confidence: 1.0,
                     reasoning: "User preferred template from feedback".to_string(),
                 })
@@ -168,7 +246,7 @@ pub async fn resolve_sql_and_plan(
                 select_template_with_llm(
                     &state.llm_client,
                     &llm_config,
-                    &request.query,
+                    query_for_matching,
                     &matched_templates,
                     &state.logs,
                     Some(&schema_context),
@@ -439,5 +517,6 @@ pub async fn resolve_sql_and_plan(
         selected_template_id,
         selected_template_name,
         llm_template_selection,
+        enriched_query: if enriched.was_enriched() { Some(enriched) } else { None },
     })
 }
